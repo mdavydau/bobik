@@ -6,6 +6,38 @@
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <DNSServer.h>
+#include <ESP32Servo.h>
+
+// ============================================
+// SERVO CONFIGURATION (SIMPLIFIED)
+// ============================================
+const int SERVO_PIN = 13;
+Servo neckServo;
+
+// Servo positions (degrees)
+const int SERVO_LEFT = 15;
+const int SERVO_CENTER = 90;
+const int SERVO_RIGHT = 165;
+
+// Servo movement
+int currentServoPos = SERVO_CENTER;
+int targetServoPos = SERVO_CENTER;
+const int SERVO_SPEED = 8; // degrees per step (lower = slower)
+
+// Flag: Was animation triggered via API? (forces servo active on first loop)
+bool animationTriggeredViaAPI = false;
+
+// For idle: track loops for automatic mode (every 4th loop)
+int idleLoopCount = 0;
+const int IDLE_SERVO_EVERY_N_LOOPS = 4;
+
+// For paused: shake timer
+unsigned long lastPausedShakeTime = 0;
+
+// For focus: progress tracking
+unsigned long focusStartTime = 0;
+unsigned long focusDuration = 0;
+bool focusHalfwayDone = false;
 
 // Animation data
 #include "idle01.h"
@@ -95,9 +127,15 @@ void drawTaskCompleteAnimation();
 void drawDebugInfo();
 void handleDebug();
 void handleReset();
+void handleServoTest();
 void checkDebugButton();
 void prepareWiFiForRetry(unsigned long delayMs = 0);
 void onWiFiConnectionFailure(const String& reason);
+
+// Servo functions
+void setupServo();
+void moveServoTo(int position);
+void updateServoMovement();
 
 void setup() {
   Serial.begin(115200);
@@ -120,6 +158,7 @@ void setup() {
   
   // Initialize components
   setupDisplay();
+  setupServo();
   
   // Initialize preferences
   preferences.begin("tabbie", false);
@@ -143,6 +182,40 @@ void setupDisplay() {
   display.sendBuffer();
   
   Serial.println("✅ OLED Display initialized (U8g2 SH1106)");
+}
+
+void setupServo() {
+  ESP32PWM::allocateTimer(0);
+  neckServo.setPeriodHertz(50);
+  neckServo.attach(SERVO_PIN, 500, 2400);
+  neckServo.write(SERVO_CENTER);
+  currentServoPos = SERVO_CENTER;
+  targetServoPos = SERVO_CENTER;
+  Serial.println("✅ Servo initialized on GPIO " + String(SERVO_PIN));
+}
+
+// Move servo to position (sets target, updateServoMovement does the actual moving)
+void moveServoTo(int position) {
+  targetServoPos = constrain(position, SERVO_LEFT, SERVO_RIGHT);
+  Serial.print("🎯 Servo → ");
+  Serial.print(targetServoPos);
+  Serial.println("°");
+}
+
+// Call this in loop() - smoothly moves servo towards target
+void updateServoMovement() {
+  static unsigned long lastMove = 0;
+  if (millis() - lastMove < 10) return; // 10ms between steps
+  lastMove = millis();
+  
+  if (currentServoPos != targetServoPos) {
+    if (currentServoPos < targetServoPos) {
+      currentServoPos = min(currentServoPos + SERVO_SPEED, targetServoPos);
+    } else {
+      currentServoPos = max(currentServoPos - SERVO_SPEED, targetServoPos);
+    }
+    neckServo.write(currentServoPos);
+  }
 }
 
 void loadWiFiCredentials() {
@@ -406,6 +479,8 @@ void setupWebServer() {
   server.on("/api/debug", HTTP_OPTIONS, handleCORS);
   server.on("/api/reset", HTTP_POST, handleReset);
   server.on("/api/reset", HTTP_OPTIONS, handleCORS);
+  server.on("/api/servo", HTTP_POST, handleServoTest);
+  server.on("/api/servo", HTTP_OPTIONS, handleCORS);
   server.on("/wifi", HTTP_GET, handleWiFiSettings);
   server.on("/wifi", HTTP_POST, handleWiFiConfig);
   
@@ -431,6 +506,9 @@ void loop() {
   
   // Update display animation (always runs, never blocked!)
   updateDisplay();
+  
+  // Update servo position (smooth movement towards target)
+  updateServoMovement();
   
   delay(5);
 }
@@ -680,20 +758,40 @@ void handleAnimation() {
     
     String newAnimation = doc["animation"];
     String newTask = doc["task"];
+    unsigned long durationSeconds = doc["duration"] | 0;
     
     if (newAnimation.length() > 0) {
       currentAnimation = newAnimation;
       currentTask = newTask;
       animationStartTime = millis();
       
-      Serial.print("🎬 Animation: ");
-      Serial.print(currentAnimation);
-      if (newTask.length() > 0) {
-        Serial.print(" (");
-        Serial.print(newTask);
-        Serial.print(")");
+      // KEY: Set flag so servo activates immediately on first loop!
+      animationTriggeredViaAPI = true;
+      idleLoopCount = 0; // Reset loop counter
+      
+      // Start servo at center
+      currentServoPos = SERVO_CENTER;
+      targetServoPos = SERVO_CENTER;
+      neckServo.write(SERVO_CENTER);
+      
+      // Focus mode timer
+      if (newAnimation == "focus" && durationSeconds > 0) {
+        focusStartTime = millis();
+        focusDuration = durationSeconds * 1000;
+        focusHalfwayDone = false;
+      } else {
+        focusDuration = 0;
+        focusHalfwayDone = false;
       }
-      Serial.println();
+      
+      // Paused mode timer
+      if (newAnimation == "paused") {
+        lastPausedShakeTime = millis();
+      }
+      
+      Serial.print("🎬 Animation set: ");
+      Serial.print(currentAnimation);
+      Serial.println(" (servo will activate on first loop)");
       
       JsonDocument response;
       response["success"] = true;
@@ -708,6 +806,55 @@ void handleAnimation() {
     }
   } else {
     server.send(400, "application/json", "{\"error\":\"No data received\"}");
+  }
+}
+
+void handleServoTest() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Content-Type", "application/json");
+  
+  if (server.hasArg("plain")) {
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+    
+    if (error) {
+      server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+      return;
+    }
+    
+    int position = SERVO_CENTER;
+    
+    if (doc.containsKey("position")) {
+      if (doc["position"].is<int>()) {
+        position = doc["position"].as<int>();
+      } else if (doc["position"].is<const char*>()) {
+        String posName = doc["position"].as<const char*>();
+        if (posName == "left") position = SERVO_LEFT;
+        else if (posName == "right") position = SERVO_RIGHT;
+        else if (posName == "center") position = SERVO_CENTER;
+      }
+    }
+    
+    position = constrain(position, SERVO_LEFT, SERVO_RIGHT);
+    
+    // Move immediately
+    neckServo.write(position);
+    currentServoPos = position;
+    targetServoPos = position;
+    
+    Serial.print("🔧 Servo → ");
+    Serial.print(position);
+    Serial.println("°");
+    
+    JsonDocument response;
+    response["success"] = true;
+    response["position"] = position;
+    
+    String responseStr;
+    serializeJson(response, responseStr);
+    server.send(200, "application/json", responseStr);
+  } else {
+    server.send(400, "application/json", "{\"error\":\"No position specified\"}");
   }
 }
 
@@ -948,153 +1095,243 @@ void drawError() {
 }
 
 void drawIdleAnimation() {
-  static int currentFrame = 0;
+  static int frame = 0;
   static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+  static bool servoActive = false;
   
-  unsigned long currentTime = millis();
+  // Reset when animation restarts
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+    
+    // If triggered via API, activate servo immediately!
+    if (animationTriggeredViaAPI) {
+      servoActive = true;
+      Serial.println("🔄 Idle started (API) - servo ACTIVE first loop");
+    } else {
+      servoActive = false;
+    }
+  }
   
-  // Update frame at 24fps using IDLE01_FRAME_DELAY (41ms per frame)
-  if (currentTime - lastFrameTime >= IDLE01_FRAME_DELAY) {
-    display.clearBuffer();
+  unsigned long now = millis();
+  if (now - lastFrameTime < IDLE01_FRAME_DELAY) return;
+  lastFrameTime = now;
+  
+  // Draw animation frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&idle01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  display.sendBuffer();
+  
+  // Servo keyframes (when active)
+  // Idle keyframes: frame 25=left, 50=center, 75=right, 90=center
+  if (servoActive) {
+    if (frame == 25) moveServoTo(SERVO_LEFT);
+    else if (frame == 50) moveServoTo(SERVO_CENTER);
+    else if (frame == 75) moveServoTo(SERVO_RIGHT);
+    else if (frame == 90) moveServoTo(SERVO_CENTER);
+  }
+  
+  // Next frame
+  frame++;
+  if (frame >= IDLE01_FRAME_COUNT) {
+    frame = 0;
+    idleLoopCount++;
     
-    // Get the frame from PROGMEM
-    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&idle01_frames[currentFrame]);
-    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-    
-    display.sendBuffer();
-    
-    currentFrame++;
-    if (currentFrame >= IDLE01_FRAME_COUNT) {
-      currentFrame = 0;
+    // After first loop, clear API flag
+    if (animationTriggeredViaAPI) {
+      animationTriggeredViaAPI = false;
+      servoActive = false; // Next loops follow normal pattern
+      Serial.println("🔄 First loop done - returning to normal (every 4th loop)");
     }
     
-    lastFrameTime = currentTime;
+    // Normal mode: activate every 4th loop
+    if (!animationTriggeredViaAPI && idleLoopCount % IDLE_SERVO_EVERY_N_LOOPS == 0) {
+      servoActive = true;
+      Serial.println("🔄 Idle loop " + String(idleLoopCount) + " - servo active");
+    } else if (!animationTriggeredViaAPI) {
+      servoActive = false;
+    }
   }
 }
 
 void drawFocusAnimation() {
-  static int currentFrame = 0;
+  static int frame = 0;
   static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
   
-  unsigned long currentTime = millis();
-  
-  // Update frame at 12fps using FOCUS01_FRAME_DELAY
-  if (currentTime - lastFrameTime >= FOCUS01_FRAME_DELAY) {
-    display.clearBuffer();
-    
-    // Get the frame from PROGMEM
-    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&focus01_frames[currentFrame]);
-    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-    
-    display.sendBuffer();
-    
-    currentFrame++;
-    if (currentFrame >= FOCUS01_FRAME_COUNT) {
-      currentFrame = 0;  // Loop continuously
-    }
-    
-    lastFrameTime = currentTime;
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
   }
+  
+  unsigned long now = millis();
+  if (now - lastFrameTime < FOCUS01_FRAME_DELAY) return;
+  lastFrameTime = now;
+  
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&focus01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  
+  // Progress bar
+  if (focusDuration > 0) {
+    unsigned long elapsed = millis() - focusStartTime;
+    float progress = min((float)elapsed / (float)focusDuration, 1.0f);
+    int barWidth = (int)(progress * 124);
+    display.drawFrame(2, 60, 124, 3);
+    if (barWidth > 0) display.drawBox(3, 61, barWidth, 1);
+    
+    // Servo at halfway
+    if (!focusHalfwayDone && elapsed >= focusDuration / 2) {
+      focusHalfwayDone = true;
+      moveServoTo(SERVO_LEFT);
+      Serial.println("🎯 Focus halfway - servo nudge");
+    }
+    if (focusHalfwayDone && elapsed >= focusDuration / 2 + 500) {
+      moveServoTo(SERVO_CENTER);
+    }
+  }
+  
+  display.sendBuffer();
+  
+  frame++;
+  if (frame >= FOCUS01_FRAME_COUNT) frame = 0;
 }
 
 void drawRelaxAnimation() {
-  static int currentFrame = 0;
+  static int frame = 0;
   static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
   
-  unsigned long currentTime = millis();
-  
-  // Update frame at 12fps using RELAX01_FRAME_DELAY
-  if (currentTime - lastFrameTime >= RELAX01_FRAME_DELAY) {
-    display.clearBuffer();
-    
-    // Get the frame from PROGMEM
-    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&relax01_frames[currentFrame]);
-    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-    
-    display.sendBuffer();
-    
-    currentFrame++;
-    if (currentFrame >= RELAX01_FRAME_COUNT) {
-      currentFrame = 0;  // Loop continuously
-    }
-    
-    lastFrameTime = currentTime;
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+    Serial.println("🔄 Break animation started - servo active every loop");
   }
+  
+  unsigned long now = millis();
+  if (now - lastFrameTime < RELAX01_FRAME_DELAY) return;
+  lastFrameTime = now;
+  
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&relax01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  display.sendBuffer();
+  
+  // Servo keyframes: 40=left, 50=right, 60=center (every loop)
+  if (frame == 40) moveServoTo(SERVO_LEFT);
+  else if (frame == 50) moveServoTo(SERVO_RIGHT);
+  else if (frame == 60) moveServoTo(SERVO_CENTER);
+  
+  frame++;
+  if (frame >= RELAX01_FRAME_COUNT) frame = 0;
 }
 
 void drawLoveAnimation() {
-  static int currentFrame = 0;
+  static int frame = 0;
   static unsigned long lastFrameTime = 0;
-  static unsigned long lastAnimationStart = 0;
+  static unsigned long lastStart = 0;
 
-  // Reset animation timing when a new love animation is triggered
-  if (animationStartTime != lastAnimationStart) {
-    currentFrame = 0;
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
     lastFrameTime = 0;
-    lastAnimationStart = animationStartTime;
+    lastStart = animationStartTime;
+    Serial.println("💕 Love animation started - servo wiggle!");
   }
   
-  unsigned long currentTime = millis();
+  unsigned long now = millis();
+  if (now - lastFrameTime < LOVE01_FRAME_DELAY) return;
+  lastFrameTime = now;
   
-  // Update frame at 8fps using LOVE01_FRAME_DELAY
-  if (currentTime - lastFrameTime >= LOVE01_FRAME_DELAY) {
-    display.clearBuffer();
-    
-    // Get the frame from PROGMEM
-    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&love01_frames[currentFrame]);
-    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-    
-    display.sendBuffer();
-    
-    currentFrame++;
-    if (currentFrame >= LOVE01_FRAME_COUNT) {
-      // Play once fully, then return to idle
-      currentAnimation = "idle";
-      currentTask = "";
-      currentFrame = 0;
-      lastAnimationStart = 0; // allow restart next time
-      return;
-    }
-    
-    lastFrameTime = currentTime;
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&love01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  display.sendBuffer();
+  
+  // Servo keyframes: 5=left, 15=right, 25=left, 35=right, 45=center
+  if (frame == 5) moveServoTo(SERVO_LEFT);
+  else if (frame == 15) moveServoTo(SERVO_RIGHT);
+  else if (frame == 25) moveServoTo(SERVO_LEFT);
+  else if (frame == 35) moveServoTo(SERVO_RIGHT);
+  else if (frame == 45) moveServoTo(SERVO_CENTER);
+  
+  frame++;
+  if (frame >= LOVE01_FRAME_COUNT) {
+    // Play once, return to idle
+    Serial.println("💕 Love done - returning to idle");
+    currentAnimation = "idle";
+    currentTask = "";
+    frame = 0;
+    lastStart = 0;
+    moveServoTo(SERVO_CENTER);
   }
 }
 
 void drawStartupAnimation() {
-  static int currentFrame = 0;
+  static int frame = 0;
   static unsigned long lastFrameTime = 0;
-  static bool hasPlayedOnce = false;
   
-  unsigned long currentTime = millis();
+  unsigned long now = millis();
+  if (now - lastFrameTime < STARTUP01_FRAME_DELAY) return;
+  lastFrameTime = now;
   
-  // Update frame at 8fps using STARTUP01_FRAME_DELAY
-  if (currentTime - lastFrameTime >= STARTUP01_FRAME_DELAY) {
-    display.clearBuffer();
-    
-    // Get the frame from PROGMEM
-    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&startup01_frames[currentFrame]);
-    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-    
-    display.sendBuffer();
-    
-    currentFrame++;
-    if (currentFrame >= STARTUP01_FRAME_COUNT) {
-      // Play once fully, then switch to idle
-      hasCompletedStartup = true;
-      currentAnimation = "idle";
-      currentFrame = 0;
-      hasPlayedOnce = false;
-      return;
-    }
-    
-    lastFrameTime = currentTime;
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&startup01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  display.sendBuffer();
+  
+  // Servo keyframes: 15=left, 30=right, 45=center
+  if (frame == 15) moveServoTo(SERVO_LEFT);
+  else if (frame == 30) moveServoTo(SERVO_RIGHT);
+  else if (frame == 45) moveServoTo(SERVO_CENTER);
+  
+  frame++;
+  if (frame >= STARTUP01_FRAME_COUNT) {
+    hasCompletedStartup = true;
+    currentAnimation = "idle";
+    frame = 0;
+    moveServoTo(SERVO_CENTER);
   }
 }
 
 void drawAngryImage() {
+  static int shakeStep = 0;
+  static unsigned long lastShakeStepTime = 0;
+  
   display.clearBuffer();
   display.drawBitmap(0, 0, 128 / 8, 64, angry_bitmap);
   display.sendBuffer();
+  
+  // Angry shake every 30 seconds
+  unsigned long now = millis();
+  if (now - lastPausedShakeTime >= 30000 && shakeStep == 0) {
+    shakeStep = 1;
+    lastPausedShakeTime = now;
+    lastShakeStepTime = now;
+    Serial.println("😠 Angry shake!");
+  }
+  
+  // Execute shake sequence
+  if (shakeStep > 0 && now - lastShakeStepTime >= 250) {
+    lastShakeStepTime = now;
+    switch (shakeStep) {
+      case 1: moveServoTo(SERVO_LEFT); shakeStep = 2; break;
+      case 2: moveServoTo(SERVO_RIGHT); shakeStep = 3; break;
+      case 3: moveServoTo(SERVO_LEFT); shakeStep = 4; break;
+      case 4: moveServoTo(SERVO_CENTER); shakeStep = 0; break;
+    }
+  }
 }
 
 void drawPomodoroAnimation() {
@@ -1134,38 +1371,54 @@ void drawPomodoroAnimation() {
 
 void drawTaskCompleteAnimation() {
   static int frame = 0;
+  static int servoStep = 0;
+  static unsigned long lastServoTime = 0;
+  static unsigned long lastStart = 0;
+  
+  // Reset on start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    servoStep = 0;
+    lastServoTime = 0;
+    lastStart = animationStartTime;
+  }
+  
   frame++;
   
   display.clearBuffer();
-  
-  // Happy face
   display.setFont(u8g2_font_10x20_tf);
   display.drawStr(45, 20, "(^.^)");
-  
-  // Celebration
   display.setFont(u8g2_font_6x10_tf);
   display.drawStr(20, 35, "Great job!");
   
-  // Task completed
   String taskDisplay = currentTask;
-  if (taskDisplay.length() > 21) {
-    taskDisplay = taskDisplay.substring(0, 18) + "...";
-  }
+  if (taskDisplay.length() > 21) taskDisplay = taskDisplay.substring(0, 18) + "...";
   display.drawStr(0, 50, taskDisplay.c_str());
   
-  // Sparkle animation
   if (frame % 20 < 10) {
     display.drawPixel(20, 15);
     display.drawPixel(100, 20);
-    display.drawPixel(15, 50);
-    display.drawPixel(110, 45);
   }
-  
   display.sendBuffer();
   
-  // Auto return to idle after 5 seconds
+  // Simple wiggle: left-right-left-right-center
+  unsigned long now = millis();
+  if (now - lastServoTime >= 200 && servoStep < 5) {
+    lastServoTime = now;
+    switch (servoStep) {
+      case 0: moveServoTo(SERVO_LEFT); break;
+      case 1: moveServoTo(SERVO_RIGHT); break;
+      case 2: moveServoTo(SERVO_LEFT); break;
+      case 3: moveServoTo(SERVO_RIGHT); break;
+      case 4: moveServoTo(SERVO_CENTER); break;
+    }
+    servoStep++;
+  }
+  
+  // Return to idle after 5 seconds
   if (millis() - animationStartTime > 5000) {
     currentAnimation = "idle";
     currentTask = "";
+    moveServoTo(SERVO_CENTER);
   }
 }

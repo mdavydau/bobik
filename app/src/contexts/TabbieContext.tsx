@@ -28,7 +28,7 @@ interface TabbieContextType {
   // Methods
   checkConnection: () => Promise<void>;
   setCustomIP: (ip: string) => void;
-  sendAnimation: (animation: string, task?: string) => Promise<boolean>;
+  sendAnimation: (animation: string, task?: string, duration?: number) => Promise<boolean>;
   triggerTaskCompletion: (taskTitle: string) => void;
   triggerDebug: () => Promise<void>;
   disconnect: () => void;
@@ -155,20 +155,27 @@ export const TabbieProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [isConnected, customIP]);
 
-  const sendAnimation = useCallback(async (animation: string, task?: string): Promise<boolean> => {
+  const sendAnimation = useCallback(async (animation: string, task?: string, duration?: number): Promise<boolean> => {
     // Attempt to send even if we think we're disconnected - this acts as a connection check too
 
     try {
-      console.log('🎨 Sending animation to Tabbie:', animation, task);
+      const payload: { animation: string; task: string; duration?: number } = {
+        animation: animation,
+        task: task || ''
+      };
+      
+      // Include duration for timer-based animations (focus, break)
+      if (duration && duration > 0) {
+        payload.duration = duration;
+      }
+      
+      console.log('🎨 Sending animation to Tabbie:', animation, task, duration ? `(${duration}s)` : '');
       const response = await fetch(`http://${customIP}/api/animation`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          animation: animation,
-          task: task || ''
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(CONNECTION_TIMEOUT),
       });
 
@@ -317,18 +324,20 @@ export const TabbieProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (pomodoroTimer.isRunning) {
       // Active session running
       if (pomodoroTimer.sessionType === 'work') {
-        // Focus session active
+        // Focus session active - send duration for progress bar
         setActivityState('focus');
         if (needsSync('focus')) {
-          sendAnimation('focus', currentTask?.title || 'Focus Session');
-          console.log('🍅 Pomodoro running - sending focus animation');
+          const durationSeconds = userData.settings.workDuration * 60; // Convert minutes to seconds
+          sendAnimation('focus', currentTask?.title || 'Focus Session', durationSeconds);
+          console.log('🍅 Pomodoro running - sending focus animation with duration:', durationSeconds, 'seconds');
         }
       } else if (pomodoroTimer.sessionType === 'shortBreak') {
-        // Break session active
+        // Break session active - send duration
         setActivityState('break');
         if (needsSync('break')) {
-          sendAnimation('break', 'Break Time');
-          console.log('☕ Break running - sending break animation');
+          const durationSeconds = userData.settings.shortBreakDuration * 60; // Convert minutes to seconds
+          sendAnimation('break', 'Break Time', durationSeconds);
+          console.log('☕ Break running - sending break animation with duration:', durationSeconds, 'seconds');
         }
       }
     } else if (pomodoroTimer.justCompleted) {

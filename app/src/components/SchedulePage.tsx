@@ -543,7 +543,7 @@ const SchedulePage: React.FC<SchedulePageProps> = ({ theme = 'clean', onNavigate
 
   const [activeDragItem, setActiveDragItem] = useState<any>(null);
   const [dragPreviewTime, setDragPreviewTime] = useState<string | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
   const [showLive, setShowLive] = useState(true);
 
   // Date Navigation State
@@ -1837,7 +1837,7 @@ const SchedulePage: React.FC<SchedulePageProps> = ({ theme = 'clean', onNavigate
                                 })}
 
                                 {/* Content - Hidden until hover */}
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75 pl-3 pr-2 flex flex-col whitespace-nowrap bg-card/95 backdrop-blur-sm h-full justify-center border-l border-border/50 text-foreground relative z-20">
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75 pl-3 pr-2 flex flex-col justify-center whitespace-nowrap bg-popover text-popover-foreground shadow-md absolute inset-0 z-50 border-l border-border">
                                   <div className="font-bold text-xs flex items-center gap-1">
                                     {session.type === 'work' ? (
                                       <>
@@ -1849,13 +1849,15 @@ const SchedulePage: React.FC<SchedulePageProps> = ({ theme = 'clean', onNavigate
                                       </>
                                     )}
                                   </div>
-                                  <div className="text-[10px] opacity-90 flex items-center gap-1">
+                                  <div className="text-[10px] text-muted-foreground mt-0.5">
                                     {format(start, 'HH:mm')} - {format(end, 'HH:mm')}
-                                    <span className="font-mono">({duration}m)</span>
                                   </div>
                                   {session.pauses && session.pauses.length > 0 && (
                                     <div className="text-[9px] text-red-500 font-bold mt-0.5">
                                       {session.pauses.length} Pause{session.pauses.length > 1 ? 's' : ''}
+                                      <span className="font-normal opacity-80 ml-1">
+                                        ({Math.round(session.pauses.reduce((acc, p) => acc + (new Date(p.end).getTime() - new Date(p.start).getTime()) / 60000, 0))}m)
+                                      </span>
                                     </div>
                                   )}
                                 </div>
@@ -1863,8 +1865,6 @@ const SchedulePage: React.FC<SchedulePageProps> = ({ theme = 'clean', onNavigate
                             );
                           }) : [];
 
-                        // ACTIVE SESSION RENDERING (Live)
-                        // Show active session regardless of history toggle
                         // ACTIVE SESSION RENDERING (Live)
                         // Show active session regardless of history toggle
                         if (showLive && pomodoroTimer.isRunning && pomodoroTimer.currentSession && pomodoroTimer.currentSession.started) {
@@ -1917,7 +1917,7 @@ const SchedulePage: React.FC<SchedulePageProps> = ({ theme = 'clean', onNavigate
                                 )} />
 
                                 {/* Content - Hidden until hover */}
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75 pl-3 pr-2 flex flex-col whitespace-nowrap bg-card/95 backdrop-blur-sm h-full justify-center border-l border-border/50 text-foreground">
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75 pl-3 pr-2 flex flex-col justify-center whitespace-nowrap bg-popover text-popover-foreground shadow-md absolute inset-0 z-50 border-l border-border">
                                   <div className="font-bold text-xs flex items-center gap-1">
                                     {/* Live Dot */}
                                     <div className={cn("w-2 h-2 rounded-full", pomodoroTimer.isRunning ? "bg-green-500 animate-pulse" : "bg-red-500")} />
@@ -2332,15 +2332,17 @@ const SchedulePage: React.FC<SchedulePageProps> = ({ theme = 'clean', onNavigate
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {resizeStatus && (
-        <div
-          className="fixed z-50 bg-black text-white text-xs font-bold px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap"
-          style={{ top: resizeStatus.y - 40, left: resizeStatus.x - 20 }}
-        >
-          {resizeStatus.time}
-        </div>
-      )}
-    </DndContext>
+      {
+        resizeStatus && (
+          <div
+            className="fixed z-50 bg-black text-white text-xs font-bold px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap"
+            style={{ top: resizeStatus.y - 40, left: resizeStatus.x - 20 }}
+          >
+            {resizeStatus.time}
+          </div>
+        )
+      }
+    </DndContext >
   );
 };
 
