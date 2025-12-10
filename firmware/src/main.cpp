@@ -1161,46 +1161,104 @@ void drawFocusAnimation() {
   static int frame = 0;
   static unsigned long lastFrameTime = 0;
   static unsigned long lastStart = 0;
+  static int lastMilestoneShown = 0; // 0=none, 1=25%, 2=50%, 3=75%
+  static unsigned long milestoneShowTime = 0;
+  const unsigned long MILESTONE_DISPLAY_MS = 3000; // Show milestone for 3 seconds
   
   // Reset on animation start
   if (animationStartTime != lastStart) {
     frame = 0;
     lastFrameTime = 0;
     lastStart = animationStartTime;
+    lastMilestoneShown = 0;
+    milestoneShowTime = 0;
+    focusHalfwayDone = false;
   }
   
   unsigned long now = millis();
-  if (now - lastFrameTime < FOCUS01_FRAME_DELAY) return;
-  lastFrameTime = now;
   
-  // Draw frame
-  display.clearBuffer();
-  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&focus01_frames[frame]);
-  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  // Calculate progress (handle paused state by using focusStartTime which doesn't change when paused)
+  unsigned long elapsed = 0;
+  float progress = 0.0f;
+  int currentMilestone = 0;
   
-  // Progress bar
   if (focusDuration > 0) {
-    unsigned long elapsed = millis() - focusStartTime;
-    float progress = min((float)elapsed / (float)focusDuration, 1.0f);
-    int barWidth = (int)(progress * 124);
-    display.drawFrame(2, 60, 124, 3);
-    if (barWidth > 0) display.drawBox(3, 61, barWidth, 1);
+    elapsed = now - focusStartTime;
+    progress = min((float)elapsed / (float)focusDuration, 1.0f);
     
-    // Servo at halfway
-    if (!focusHalfwayDone && elapsed >= focusDuration / 2) {
+    // Determine which milestone we've reached
+    if (progress >= 0.75f) currentMilestone = 3;
+    else if (progress >= 0.50f) currentMilestone = 2;
+    else if (progress >= 0.25f) currentMilestone = 1;
+  }
+  
+  // Check if we should show a new milestone
+  if (currentMilestone > lastMilestoneShown && focusDuration > 0) {
+    lastMilestoneShown = currentMilestone;
+    milestoneShowTime = now;
+    
+    // Servo nudge at 50% milestone
+    if (currentMilestone == 2 && !focusHalfwayDone) {
       focusHalfwayDone = true;
       moveServoTo(SERVO_LEFT);
-      Serial.println("🎯 Focus halfway - servo nudge");
-    }
-    if (focusHalfwayDone && elapsed >= focusDuration / 2 + 500) {
-      moveServoTo(SERVO_CENTER);
+      Serial.println("🎯 Focus 50% - servo nudge");
     }
   }
   
-  display.sendBuffer();
+  // Return servo to center after nudge
+  if (focusHalfwayDone && now - milestoneShowTime > 500 && lastMilestoneShown == 2) {
+    moveServoTo(SERVO_CENTER);
+  }
   
-  frame++;
-  if (frame >= FOCUS01_FRAME_COUNT) frame = 0;
+  // Are we currently showing a milestone overlay?
+  bool showingMilestone = (milestoneShowTime > 0 && now - milestoneShowTime < MILESTONE_DISPLAY_MS);
+  
+  display.clearBuffer();
+  
+  if (showingMilestone && focusDuration > 0) {
+    // ========== MILESTONE OVERLAY (no animation visible) ==========
+    unsigned long remaining = focusDuration > elapsed ? focusDuration - elapsed : 0;
+    int remainingMin = remaining / 60000;
+    int remainingSec = (remaining % 60000) / 1000;
+    
+    // Milestone message at top
+    display.setFont(u8g2_font_6x10_tf);
+    const char* message = "";
+    switch (lastMilestoneShown) {
+      case 1: message = ">> 25% done >>"; break;
+      case 2: message = ">>> Halfway! >>>"; break;
+      case 3: message = ">>>> Almost! >>>>"; break;
+    }
+    int msgWidth = strlen(message) * 6;
+    display.drawStr((128 - msgWidth) / 2, 16, message);
+    
+    // Progress bar (centered, larger)
+    int barWidth = (int)(progress * 96);
+    display.drawFrame(16, 26, 96, 12);
+    if (barWidth > 2) display.drawBox(18, 28, barWidth - 4, 8);
+    
+    // Time remaining at bottom
+    char timeStr[24];
+    sprintf(timeStr, "%d:%02d left", remainingMin, remainingSec);
+    int timeWidth = strlen(timeStr) * 6;
+    display.drawStr((128 - timeWidth) / 2, 52, timeStr);
+    
+    Serial.printf("📊 Milestone %d shown: %s (%d:%02d remaining)\n", 
+                  lastMilestoneShown, message, remainingMin, remainingSec);
+    
+  } else {
+    // ========== NORMAL ANIMATION ==========
+    if (now - lastFrameTime >= FOCUS01_FRAME_DELAY) {
+      lastFrameTime = now;
+      frame++;
+      if (frame >= FOCUS01_FRAME_COUNT) frame = 0;
+    }
+    
+    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&focus01_frames[frame]);
+    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  }
+  
+  display.sendBuffer();
 }
 
 void drawRelaxAnimation() {

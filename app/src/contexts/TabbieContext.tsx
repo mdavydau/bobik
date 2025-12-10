@@ -324,20 +324,21 @@ export const TabbieProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (pomodoroTimer.isRunning) {
       // Active session running
       if (pomodoroTimer.sessionType === 'work') {
-        // Focus session active - send duration for progress bar
+        // Focus session active - send REMAINING time for progress bar
         setActivityState('focus');
         if (needsSync('focus')) {
-          const durationSeconds = userData.settings.workDuration * 60; // Convert minutes to seconds
-          sendAnimation('focus', currentTask?.title || 'Focus Session', durationSeconds);
-          console.log('🍅 Pomodoro running - sending focus animation with duration:', durationSeconds, 'seconds');
+          // Use timeLeft (remaining seconds) so progress bar is correct after pause/resume
+          const remainingSeconds = Math.max(0, Math.floor(pomodoroTimer.timeLeft));
+          sendAnimation('focus', currentTask?.title || 'Focus Session', remainingSeconds);
+          console.log('🍅 Pomodoro running - sending focus animation with remaining:', remainingSeconds, 'seconds');
         }
       } else if (pomodoroTimer.sessionType === 'shortBreak') {
-        // Break session active - send duration
+        // Break session active - send remaining duration
         setActivityState('break');
         if (needsSync('break')) {
-          const durationSeconds = userData.settings.shortBreakDuration * 60; // Convert minutes to seconds
-          sendAnimation('break', 'Break Time', durationSeconds);
-          console.log('☕ Break running - sending break animation with duration:', durationSeconds, 'seconds');
+          const remainingSeconds = Math.max(0, Math.floor(pomodoroTimer.timeLeft));
+          sendAnimation('break', 'Break Time', remainingSeconds);
+          console.log('☕ Break running - sending break animation with remaining:', remainingSeconds, 'seconds');
         }
       }
     } else if (pomodoroTimer.justCompleted) {
