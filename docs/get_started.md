@@ -51,7 +51,7 @@ I recommend buying the parts on **Amazon or Aliexpress**
 </div>
 
 
-[![Watch the video](../tutorial-thumb.png)](https://youtu.be/OyjsMKxYkQ0)
+[![Watch the video](../tutorial-thumb.png)](https://youtu.be/l_Xwujika5U)
 
 
 
