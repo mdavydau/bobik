@@ -5,7 +5,7 @@ Ever wanted a **to-do app with a Cute Face**? One that lives on your desk?
 
 **That's Tabbie.**
 
-[🛠️ Get started](https://tabbie.me) · [📺 Follow the build](https://www.youtube.com/@LloydDecember1) · [👥 Join the community](https://www.reddit.com/r/deskbuddy/) · [📘 Hardware Starer Guide](https://tabbie.me/hardware-guide)
+[🛠️ Get started](docs/get_started.md) · [📺 Follow the build](https://www.youtube.com/@LloydDecember1) · [👥 Join the community](https://www.reddit.com/r/deskbuddy/) · [📘 Hardware Beginner Guide](https://tabbie.me/diy-kit)
 
 
 </div>
@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/2cbf9e57-a491-4764-b69d-660fd9c50714
 ## ✨ Made to Be Built
 
 Tabbie is open-source and totally customizable.  
-You can build it yourself with 3D-printed parts and off-the-shelf components — [or just buy a Kit.](https://www.tabbie.me/buy)
+You can build it yourself with 3D-printed parts and off-the-shelf components — [or just buy a Kit.](https://www.tabbie.me/diy-kit)
 
 Powered by:
 - An ESP32 microcontroller
@@ -43,11 +43,11 @@ Powered by:
 - 3D-printed body with custom designs and colors
 
 If you're new to electronics:  
-I also put together a [simple hardware starter guide](https://tabbie.me/hardware-guide) that explains the basics behind Tabbie
+I also put together a [simple hardware beginner guide](https://tabbie.me/diy-kit) that explains the basics behind Tabbie
 
 ---
 
-## 🚀 Get Started(STIL WIP, BUT FULL INSTRUCTIONS COMING NOVEMBER 10)
+## 🚀 Get Started
 
 Start with the step-by-step guide (WITH A **15 MINUTE VIDEO TUTORIAL**):
 - 👉 See: [`docs/get_started.md`](docs/get_started.md)
@@ -83,7 +83,7 @@ tabbie/
 
 ---
 
-Want to understand Tabbie’s internals or eventually modify the hardware? [There’s a beginner-friendly hardware guide here](https://tabbie.me/hardware-guide)
+Want to understand Tabbie’s internals or eventually modify the hardware? [There’s a beginner-friendly hardware guide comming](https://tabbie.me/diy-kit)
 
 ## 🤝 Contributing
 
