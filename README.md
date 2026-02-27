@@ -5,7 +5,7 @@ Ever wanted a **to-do app with a Cute Face**? One that lives on your desk?
 
 **That's Tabbie.**
 
-[🛠️ Get started](docs/get_started.md) · [📺 Follow the build](https://www.youtube.com/@LloydDecember1) · [👥 Join the community](https://www.reddit.com/r/deskbuddy/) · [📘 Hardware Beginner Guide](https://tabbie.me/diy-kit)
+[🛠️ Get started](docs/get_started.md) · [👥 Join the community](https://www.reddit.com/r/deskbuddy/) · [📘 Beginner Course](https://tabbie.me/diy-kit)
 
 
 </div>
@@ -43,7 +43,7 @@ Powered by:
 - 3D-printed body with custom designs and colors
 
 If you're new to electronics:  
-I also put together a [simple hardware beginner guide](https://tabbie.me/diy-kit) that explains the basics behind Tabbie
+I also put together a [beginners starter guide](https://tabbie.me/diy-kit) that explains the basics behind Tabbie and coding with AI
 
 ---
 
@@ -83,7 +83,7 @@ tabbie/
 
 ---
 
-Want to understand Tabbie’s internals or eventually modify the hardware? [There’s a beginner-friendly hardware guide comming](https://tabbie.me/diy-kit)
+Want to understand Tabbie’s internals or eventually modify the hardware? [Check out the beginners starter guide](https://tabbie.me/diy-kit)
 
 ## 🤝 Contributing
 
