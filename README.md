@@ -5,7 +5,7 @@ Ever wanted a **to-do app with a Cute Face**? One that lives on your desk?
 
 **That's Tabbie.**
 
-[🛠️ Get started](docs/get_started.md) · [👥 Join the community](https://www.reddit.com/r/deskrobot/) · [Get finished Tabbie](https://tabbie.me)
+[🛠️ Get started](docs/get_started.md) · [👥 Join the community](https://www.reddit.com/r/deskrobot/) · [📦 Get finished Tabbie](https://tabbie.me)
 
 
 </div>
@@ -13,8 +13,6 @@ Ever wanted a **to-do app with a Cute Face**? One that lives on your desk?
 ---
 
 ## 🧠 What is Tabbie?
-
-
 
 **Tabbie is a DIY desk robot that helps you work, focus, and learn.**  
 It's like a to-do app — but physical, local, and full of personality.
@@ -35,7 +33,7 @@ https://github.com/user-attachments/assets/2cbf9e57-a491-4764-b69d-660fd9c50714
 ## ✨ Made to Be Built
 
 Tabbie is open-source and totally customizable.  
-You can build it yourself with 3D-printed parts and off-the-shelf components — [or just get a finished one](https://www.tabbie.me)
+You can build it yourself with 3D-printed parts and off-the-shelf components [or just get a finished one](https://www.tabbie.me)
 
 Powered by:
 - An ESP32 microcontroller
