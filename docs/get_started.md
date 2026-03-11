@@ -1,7 +1,5 @@
 # Getting Started with Tabbie
 
-> STILL WORKING ON THIS - COME BACK ON NOVEMBER 10, 2025 (_but you can alrdy grab the parts on amazon now if you want save time)_
-
 A mini Twitch streamer on your desk, cheering you on, but also keeping you focused. Lets make one
 
 
@@ -41,7 +39,7 @@ I recommend buying the parts on **Amazon or Aliexpress**
 
 *These are affiliate links - I get 3% at no extra cost to you!*
 
-## **Don't want to deal with parts & printing?** [Pre-order a complete kit here](https://www.tabbie.me/diy-kit)
+## **Don't want to deal with parts & printing?** [Just buy a finished one here](https://www.tabbie.me)
 
 <div align="center">
 
@@ -240,7 +238,7 @@ All your tasks/notes etc... are only saved on your computer, no one can access t
 - Check your USB cable (some cables only charge, they don't transfer data)
 
 **Need more help?** Join the community:
-- [Discord](https://discord.gg/7er2Ysjc) - [Reddit](https://www.reddit.com/r/deskbuddy/) - [YouTube](https://www.youtube.com/@LloydDecember1) - [GitHub](https://github.com/Peeeeteer/tabbie) - [X](https://x.com/llo7d)
+- [Discord](https://discord.gg/7er2Ysjc) - [Reddit](https://www.reddit.com/r/deskrobot/) - [YouTube](https://www.youtube.com/@LloydDecember1) - [GitHub](https://github.com/Peeeeteer/tabbie) - [X](https://x.com/lloyd_december)
 
 ---
 
