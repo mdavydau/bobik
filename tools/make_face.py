@@ -36,7 +36,8 @@ W, H = 128, 64
 BYTES_PER_FRAME = W * H // 8
 VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))   # <repo>/tools
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)                    # <repo>
 
 
 def load_frames(inp, fps, max_frames):
@@ -125,6 +126,19 @@ def pack(bw):
     return out
 
 
+def build_gif(bw_frames, path, scale, fps):
+    """Write an animated GIF preview (amber-on-dark, like a lit OLED)."""
+    amber, bg = (247, 182, 90), (8, 10, 13)
+    rgb = []
+    for bw in bw_frames:
+        big = bw.resize((W * scale, H * scale), Image.NEAREST)
+        base = Image.new("RGB", big.size, bg)
+        lit = Image.new("RGB", big.size, amber)
+        rgb.append(Image.composite(lit, base, big))
+    rgb[0].save(path, save_all=True, append_images=rgb[1:],
+                duration=max(1, round(1000 / fps)), loop=0, disposal=2)
+
+
 def emit_header(name, frames_bytes, fps):
     NAME = name.upper()
     delay = round(1000 / fps)
@@ -211,7 +225,7 @@ def main():
     if not re.fullmatch(r"[a-z][a-z0-9_]*", a.name):
         sys.exit("--name must be lowercase letters/digits, e.g. happy01")
 
-    out = a.out or os.path.join(SCRIPT_DIR, "tabbie", "firmware", "src", a.name + ".h")
+    out = a.out or os.path.join(REPO_ROOT, "firmware", "src", a.name + ".h")
 
     frames = load_frames(a.input, a.fps, a.max_frames)
     if not frames:

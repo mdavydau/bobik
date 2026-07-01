@@ -32,7 +32,7 @@ task="${*:-}"
 case "$cmd" in
   ""|-h|--help|help) usage; exit 0 ;;
   list)
-    echo "angry happy done focus break pomodoro idle hello  (or any raw animation name)"; exit 0 ;;
+    echo "angry happy done focus break pomodoro idle hello sweat coffee  (or any raw animation name)"; exit 0 ;;
   status)
     if ! curl -fsS -m 6 "$BASE/api/status"; then
       echo "ERROR: cannot reach Tabbie at $BASE" >&2; exit 1
@@ -50,6 +50,8 @@ case "$cmd" in
   pomodoro|timer)       anim=pomodoro ;;
   idle|neutral|normal)  anim=idle ;;
   hello|startup|boot)   anim=startup ;;
+  hot|sweat|tired)      anim=sweat ;;
+  coffee|brew|break-coffee) anim=coffee ;;
   *)                    anim="$cmd" ;;   # raw passthrough
 esac
 

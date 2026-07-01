@@ -17,7 +17,7 @@ LOOP=false
 [[ "${3:-}" == "--loop" ]] && LOOP=true
 
 # Every animation the firmware knows how to render (see firmware/src/main.cpp updateDisplay)
-EXPRESSIONS=(startup idle focus pomodoro break love complete paused)
+EXPRESSIONS=(startup idle focus pomodoro break love complete paused sweat coffee)
 
 send() {
   if curl -s -m 5 -X POST "http://$HOST/api/animation" \

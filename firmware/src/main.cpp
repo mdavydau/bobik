@@ -7,6 +7,7 @@
 #include <ESPmDNS.h>
 #include <DNSServer.h>
 #include <ESP32Servo.h>
+#include <time.h>
 
 // ============================================
 // SERVO CONFIGURATION (SIMPLIFIED)
@@ -47,6 +48,8 @@ bool focusHalfwayDone = false;
 #include "startup01.h"
 #include "angry_bitmap.h"  // Static angry image (fallback)
 #include "angry01.h"          // Animated angry face
+#include "sweat01.h"          // Animated hot/sweating face
+#include "coffee01.h"          // face: coffee
 
 // Optional MQTT bridge — enabled only when firmware/src/mqtt_config.h exists.
 // Lets a remote server / voice assistant control Tabbie by publishing commands
@@ -90,6 +93,42 @@ bool isInSetupMode = false;
 String wifiStatus = "disconnected";
 String lastError = "";
 
+// ============================================
+// ON-DEVICE TIME & SCHEDULED ("time-related") FACES
+// ============================================
+// POSIX TZ for Europe/Warsaw (Poland): CET (+1) / CEST (+2) with EU DST rules.
+#define TABBIE_TZ "CET-1CEST,M3.5.0,M10.5.0/3"
+
+bool timeConfigStarted = false;      // configTzTime() has been requested
+bool timeSynced = false;             // NTP returned a valid wall-clock time
+unsigned long lastTimeSyncAttempt = 0;
+unsigned long lastScheduleCheck = 0;
+
+// A scheduled face fires once per day at hour:minute (device-local time),
+// shows for `showSec`, then reverts to idle. Add rows for more time-of-day faces.
+struct ScheduledFace {
+  uint8_t hour;
+  uint8_t minute;
+  const char* animation;   // must be a wired animation name (see updateDisplay)
+  const char* task;
+  uint16_t showSec;        // hold time before returning to idle (0 = leave it up)
+  int lastFiredYmd;        // internal: YYYYMMDD it last fired (0 = never)
+};
+ScheduledFace scheduledFaces[] = {
+  // Noon coffee break, 12:00 Europe/Warsaw.
+  { 12,  0, "coffee", "coffee time", 120, 0 },
+  // Examples to add later, e.g.:
+  // {  9,  0, "focus",  "morning focus",  0, 0 },
+  // { 18,  0, "sweat",  "wrap it up",   120, 0 },
+};
+const int scheduledFaceCount = sizeof(scheduledFaces) / sizeof(scheduledFaces[0]);
+
+// Tracks a currently-showing scheduled face so we can auto-revert it to idle,
+// but only if nothing else (API/MQTT) has taken over in the meantime.
+String scheduledActiveAnim = "";
+unsigned long scheduledActiveStart = 0;
+unsigned long scheduledRevertAt = 0;
+
 // WiFi connection state machine
 String savedSSID = "";
 String savedPassword = "";
@@ -132,6 +171,9 @@ void handleStatus();
 void handleAnimation();
 void handleWiFiSettings();
 void handleCORS();
+void triggerAnimation(const String& anim, const String& task, unsigned long durSec);
+void syncTimeIfNeeded();
+void checkScheduledFaces();
 void updateDisplay();
 void drawSetupMode();
 void drawConnecting();
@@ -144,8 +186,10 @@ void drawLoveAnimation();
 void drawStartupAnimation();
 void drawAngryImage();
 void drawAngryAnimation();
+void drawSweatAnimation();
 void drawPomodoroAnimation();
 void drawTaskCompleteAnimation();
+void drawCoffeeAnimation();
 void drawDebugInfo();
 void handleDebug();
 void handleReset();
@@ -539,7 +583,11 @@ void loop() {
 
   // Handle web server requests
   server.handleClient();
-  
+
+  // Keep the clock synced and fire any time-of-day scheduled faces (on-device)
+  syncTimeIfNeeded();
+  checkScheduledFaces();
+
   // Update display animation (always runs, never blocked!)
   updateDisplay();
   
@@ -722,7 +770,18 @@ void handleStatus() {
   doc["task"] = currentTask;
   doc["uptime"] = millis();
   doc["setupMode"] = isInSetupMode;
-  
+
+  // On-device local time (Europe/Warsaw) so schedules are verifiable
+  doc["timeSynced"] = timeSynced;
+  if (timeSynced) {
+    time_t t = time(nullptr);
+    struct tm lt;
+    localtime_r(&t, &lt);
+    char buf[20];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &lt);
+    doc["localTime"] = buf;
+  }
+
   if (!isInSetupMode && WiFi.status() == WL_CONNECTED) {
     doc["ip"] = WiFi.localIP().toString();
     doc["ssid"] = WiFi.SSID();
@@ -897,26 +956,7 @@ void handleServoTest() {
 #ifdef TABBIE_MQTT
 // Apply an animation command from the MQTT bridge. Mirrors handleAnimation().
 void applyAnimation(const String& anim, const String& task, unsigned long durSec) {
-  if (anim.length() == 0) return;
-  currentAnimation = anim;
-  currentTask = task;
-  animationStartTime = millis();
-  animationTriggeredViaAPI = true;
-  idleLoopCount = 0;
-  currentServoPos = SERVO_CENTER;
-  targetServoPos = SERVO_CENTER;
-  neckServo.write(SERVO_CENTER);
-  if (anim == "focus" && durSec > 0) {
-    focusStartTime = millis();
-    focusDuration = durSec * 1000;
-    focusHalfwayDone = false;
-  } else {
-    focusDuration = 0;
-    focusHalfwayDone = false;
-  }
-  if (anim == "paused") {
-    lastPausedShakeTime = millis();
-  }
+  triggerAnimation(anim, task, durSec);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -967,6 +1007,121 @@ void mqttLoop() {
 }
 #endif  // TABBIE_MQTT
 
+void drawCoffeeAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < COFFEE01_FRAME_DELAY) return;
+  lastFrameTime = now;
+
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&coffee01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  display.sendBuffer();
+
+  frame++;
+  if (frame >= COFFEE01_FRAME_COUNT) frame = 0;
+}
+
+// Set the current animation from any source (API, MQTT, or the on-device
+// scheduler). Single source of truth; works whether or not MQTT is compiled in.
+void triggerAnimation(const String& anim, const String& task, unsigned long durSec) {
+  if (anim.length() == 0) return;
+  currentAnimation = anim;
+  currentTask = task;
+  animationStartTime = millis();
+  animationTriggeredViaAPI = true;
+  idleLoopCount = 0;
+  currentServoPos = SERVO_CENTER;
+  targetServoPos = SERVO_CENTER;
+  neckServo.write(SERVO_CENTER);
+  if (anim == "focus" && durSec > 0) {
+    focusStartTime = millis();
+    focusDuration = durSec * 1000;
+    focusHalfwayDone = false;
+  } else {
+    focusDuration = 0;
+    focusHalfwayDone = false;
+  }
+  if (anim == "paused") {
+    lastPausedShakeTime = millis();
+  }
+}
+
+// Keep the device clock in sync via NTP, in Europe/Warsaw local time.
+// Non-blocking: requests once WiFi is up, then polls until the clock is valid.
+void syncTimeIfNeeded() {
+  if (timeSynced) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  unsigned long now = millis();
+  if (!timeConfigStarted) {
+    configTzTime(TABBIE_TZ, "pool.ntp.org", "time.google.com", "time.nist.gov");
+    timeConfigStarted = true;
+    lastTimeSyncAttempt = now;
+    Serial.println("🕒 NTP time sync requested (Europe/Warsaw)...");
+    return;
+  }
+  if (now - lastTimeSyncAttempt < 2000) return;   // poll every 2s
+  lastTimeSyncAttempt = now;
+
+  time_t t = time(nullptr);
+  if (t > 1700000000) {   // ~2023-11 onwards => clock is real, not the boot epoch
+    timeSynced = true;
+    struct tm lt;
+    localtime_r(&t, &lt);
+    Serial.printf("🕒 Time synced: %04d-%02d-%02d %02d:%02d:%02d local\n",
+                  lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+                  lt.tm_hour, lt.tm_min, lt.tm_sec);
+  }
+}
+
+// Fire time-of-day faces from the scheduledFaces table, entirely on-device.
+void checkScheduledFaces() {
+  if (!timeSynced || isInSetupMode || !hasCompletedStartup) return;
+  unsigned long now = millis();
+
+  // Auto-revert a scheduled face to idle after its hold window — but only if
+  // nothing else (API/MQTT) has changed the animation since we set it.
+  if (scheduledRevertAt != 0 && now >= scheduledRevertAt) {
+    if (currentAnimation == scheduledActiveAnim && animationStartTime == scheduledActiveStart) {
+      triggerAnimation("idle", "", 0);
+    }
+    scheduledRevertAt = 0;
+  }
+
+  if (now - lastScheduleCheck < 15000) return;   // ~4 checks/min is plenty
+  lastScheduleCheck = now;
+
+  time_t t = time(nullptr);
+  struct tm lt;
+  localtime_r(&t, &lt);
+  int ymd = (lt.tm_year + 1900) * 10000 + (lt.tm_mon + 1) * 100 + lt.tm_mday;
+
+  for (int i = 0; i < scheduledFaceCount; i++) {
+    ScheduledFace &s = scheduledFaces[i];
+    if (lt.tm_hour == s.hour && lt.tm_min == s.minute && s.lastFiredYmd != ymd) {
+      s.lastFiredYmd = ymd;
+      triggerAnimation(s.animation, s.task, 0);
+      scheduledActiveAnim = s.animation;
+      scheduledActiveStart = animationStartTime;
+      scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
+      Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
+                    s.animation, lt.tm_hour, lt.tm_min);
+    }
+  }
+}
+
 void updateDisplay() {
   // Handle startup animation - play once then go to idle
   if (!hasCompletedStartup) {
@@ -1003,6 +1158,10 @@ void updateDisplay() {
     drawAngryAnimation();
   } else if (currentAnimation == "love") {
     drawLoveAnimation();
+  } else if (currentAnimation == "sweat") {
+    drawSweatAnimation();
+  } else if (currentAnimation == "coffee") {
+    drawCoffeeAnimation();
   } else if (currentAnimation == "pomodoro") {
     drawPomodoroAnimation();
   } else if (currentAnimation == "complete") {
@@ -1400,6 +1559,32 @@ void drawRelaxAnimation() {
   
   frame++;
   if (frame >= RELAX01_FRAME_COUNT) frame = 0;
+}
+
+void drawSweatAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < SWEAT01_FRAME_DELAY) return;
+  lastFrameTime = now;
+
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&sweat01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  display.sendBuffer();
+
+  frame++;
+  if (frame >= SWEAT01_FRAME_COUNT) frame = 0;
 }
 
 void drawLoveAnimation() {

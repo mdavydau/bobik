@@ -33,6 +33,8 @@ case "$cmd" in
   pomodoro|timer)          anim=pomodoro ;;
   idle|neutral|normal)     anim=idle ;;
   hello|startup|boot)      anim=startup ;;
+  hot|sweat|tired)         anim=sweat ;;
+  coffee|brew)             anim=coffee ;;
   *)                       anim="$cmd" ;;
 esac
 
