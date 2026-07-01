@@ -1,6 +1,9 @@
 # WiFi credentials - keep secure!
 wifi.env
 
+# MQTT broker credentials - keep secure! (copy mqtt_config.example.h)
+src/mqtt_config.h
+
 # Build artifacts
 .pio/
 .vscode/

@@ -1,0 +1,16 @@
+learnings/01-arduino-uno-basic/compress.py
+content
+tabbie-learns/03-esp-32-led-screens/.env
+todo.txt
+todo2.txt
+image-to-bitmap
+firmware/.env
+firmware/wifi.env
+.mqtt.env
+.mqtt-creds.txt
+TABBIE_SYNC_IMPLEMENTATION.md
+sounds/
+.DS_Store
+
+node_modules/
+app/node_modules/
