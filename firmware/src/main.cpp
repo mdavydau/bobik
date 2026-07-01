@@ -82,6 +82,7 @@ unsigned long lastMqttReconnect = 0;
 void mqttLoop();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void applyAnimation(const String& anim, const String& task, unsigned long durSec);
+void flushPendingFaceNotification();
 #endif
 
 // WiFi credentials storage
@@ -143,6 +144,10 @@ unsigned long scheduledRevertAt = 0;
 
 // Anger escalation state — set to true via "stop-escalation" command
 bool escalationCancelled = false;
+#ifdef TABBIE_MQTT
+String pendingFaceNotifyPayload = "";
+bool pendingFaceNotifyDirty = false;
+#endif
 int escalationResetLastYmd = 0;
 
 // WiFi connection state machine
@@ -1139,12 +1144,19 @@ void mqttLoop() {
       mqttClient.subscribe(MQTT_CMD_TOPIC);
       mqttClient.publish(MQTT_STATUS_TOPIC, "online", true);
       Serial.println("✅ MQTT connected");
+#ifdef TABBIE_MQTT
+      flushPendingFaceNotification();
+#endif
     } else {
-      Serial.print("❌ MQTT connect failed, rc="); Serial.println(mqttClient.state());
+      Serial.print("❌ MQTT connect failed, rc=");
+      Serial.println(mqttClient.state());
     }
     return;
   }
   mqttClient.loop();
+#ifdef TABBIE_MQTT
+  flushPendingFaceNotification();
+#endif
 }
 #endif  // TABBIE_MQTT
 
@@ -1267,8 +1279,6 @@ void triggerAnimation(const String& anim, const String& task, unsigned long durS
 
 void publishFaceNotification(const String& anim, const String& task) {
 #ifdef TABBIE_MQTT
-  if (!mqttClient.connected()) return;
-
   JsonDocument note;
   note["event"] = "face-change";
   note["anim"] = anim;
@@ -1289,9 +1299,17 @@ void publishFaceNotification(const String& anim, const String& task) {
 
   String payload;
   serializeJson(note, payload);
-  mqttClient.publish("tabbie/notify", payload.c_str());
-  Serial.print("📢 MQTT notify: ");
-  Serial.println(payload);
+  if (mqttClient.connected() && mqttClient.publish("tabbie/notify", payload.c_str())) {
+    pendingFaceNotifyDirty = false;
+    pendingFaceNotifyPayload = "";
+    Serial.print("📢 MQTT notify: ");
+    Serial.println(payload);
+  } else {
+    pendingFaceNotifyPayload = payload;
+    pendingFaceNotifyDirty = true;
+    Serial.print("📬 MQTT notify queued: ");
+    Serial.println(payload);
+  }
 #endif
 }
 
@@ -1301,7 +1319,18 @@ void clearScheduledFaceOverride() {
   scheduledRevertAt = 0;
 }
 
-// Keep the device clock in sync via NTP, in Europe/Warsaw local time.
+#ifdef TABBIE_MQTT
+void flushPendingFaceNotification() {
+  if (!pendingFaceNotifyDirty || !mqttClient.connected()) return;
+  if (mqttClient.publish("tabbie/notify", pendingFaceNotifyPayload.c_str())) {
+    Serial.print("📢 MQTT notify (deferred): ");
+    Serial.println(pendingFaceNotifyPayload);
+    pendingFaceNotifyDirty = false;
+    pendingFaceNotifyPayload = "";
+  }
+}
+#endif
+
 // Non-blocking: requests once WiFi is up, then polls until the clock is valid.
 void syncTimeIfNeeded() {
   if (timeSynced) return;
