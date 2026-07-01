@@ -180,6 +180,7 @@ void handleAnimation();
 void handleWiFiSettings();
 void handleCORS();
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec);
+void clearScheduledFaceOverride();
 void syncTimeIfNeeded();
 void checkScheduledFaces();
 void logDevSnapshot();
@@ -909,33 +910,8 @@ void handleAnimation() {
     unsigned long durationSeconds = doc["duration"] | 0;
     
     if (newAnimation.length() > 0) {
-      currentAnimation = newAnimation;
-      currentTask = newTask;
-      animationStartTime = millis();
-      
-      // KEY: Set flag so servo activates immediately on first loop!
-      animationTriggeredViaAPI = true;
-      idleLoopCount = 0; // Reset loop counter
-      
-      // Start servo at center
-      currentServoPos = SERVO_CENTER;
-      targetServoPos = SERVO_CENTER;
-      neckServo.write(SERVO_CENTER);
-      
-      // Focus mode timer
-      if (newAnimation == "focus" && durationSeconds > 0) {
-        focusStartTime = millis();
-        focusDuration = durationSeconds * 1000;
-        focusHalfwayDone = false;
-      } else {
-        focusDuration = 0;
-        focusHalfwayDone = false;
-      }
-      
-      // Paused mode timer
-      if (newAnimation == "paused") {
-        lastPausedShakeTime = millis();
-      }
+      clearScheduledFaceOverride();
+      triggerAnimation(newAnimation, newTask, durationSeconds);
       
       Serial.print("🎬 Animation set: ");
       Serial.print(currentAnimation);
@@ -1208,6 +1184,12 @@ void triggerAnimation(const String& anim, const String& task, unsigned long durS
   if (anim == "paused") {
     lastPausedShakeTime = millis();
   }
+}
+
+void clearScheduledFaceOverride() {
+  scheduledActiveAnim = "";
+  scheduledActiveStart = 0;
+  scheduledRevertAt = 0;
 }
 
 // Keep the device clock in sync via NTP, in Europe/Warsaw local time.

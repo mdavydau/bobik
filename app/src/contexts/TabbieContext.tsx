@@ -5,6 +5,7 @@ const TABBIE_HOSTNAME = "tabbie.local";
 const RECONNECT_INTERVAL = 5000; // Try to reconnect every 5 seconds when disconnected
 const STATUS_UPDATE_INTERVAL = 5000; // Update status every 5 seconds
 const CONNECTION_TIMEOUT = 3000; // 3 second timeout for faster feedback
+const MANAGED_ANIMATIONS = new Set(['focus', 'break', 'complete', 'paused']);
 
 interface TabbieStatus {
   status: string;
@@ -369,7 +370,7 @@ export const TabbieProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } else {
       // No active session - idle
       setActivityState('idle');
-      if (needsSync('idle')) {
+      if (lastSyncedAnimation && MANAGED_ANIMATIONS.has(lastSyncedAnimation) && needsSync('idle')) {
         sendAnimation('idle');
         console.log('💤 Idle state - sending idle animation');
       }
