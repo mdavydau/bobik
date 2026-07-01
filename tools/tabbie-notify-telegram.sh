@@ -121,7 +121,8 @@ send_telegram() {
     --data-urlencode "text=${text}" >/dev/null
 }
 
-mosquitto_sub "${sub_args[@]}" | while IFS= read -r payload; do
+err_file="$(mktemp)"
+mosquitto_sub "${sub_args[@]}" 2>"$err_file" | while IFS= read -r payload; do
   [ -n "$payload" ] || continue
   if ! send_telegram "$payload"; then
     echo "ERROR: failed to send Telegram message for payload: $payload" >&2
@@ -130,6 +131,25 @@ done
 
 sub_status=${PIPESTATUS[0]}
 case "$sub_status" in
-  0|27) exit 0 ;; # 27 is mosquitto timeout with -W on common builds.
-  *) echo "ERROR: mosquitto_sub failed with status $sub_status" >&2; exit "$sub_status" ;;
+  0|27)
+    # 27 is the normal mosquitto_sub timeout with -W on common builds.
+    # Suppress that expected message in cron mode, but keep real errors.
+    ;;
+  *)
+    if [ -s "$err_file" ]; then
+      cat "$err_file" >&2
+    fi
+    rm -f "$err_file"
+    echo "ERROR: mosquitto_sub failed with status $sub_status" >&2
+    exit "$sub_status"
+    ;;
 esac
+
+if [ -s "$err_file" ]; then
+  # Keep unexpected mosquitto_sub diagnostics visible, but ignore the expected timeout noise.
+  if ! grep -qi 'timed out' "$err_file"; then
+    cat "$err_file" >&2
+  fi
+fi
+rm -f "$err_file"
+exit 0
