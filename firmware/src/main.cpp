@@ -48,6 +48,17 @@ bool focusHalfwayDone = false;
 #include "angry_bitmap.h"  // Static angry image (fallback)
 #include "angry01.h"          // Animated angry face
 
+// Optional MQTT bridge — enabled only when firmware/src/mqtt_config.h exists.
+// Lets a remote server / voice assistant control Tabbie by publishing commands
+// (the board dials OUT to the broker, so it works behind home NAT).
+#if defined(__has_include)
+  #if __has_include("mqtt_config.h")
+    #include "mqtt_config.h"
+    #include <PubSubClient.h>
+    #define TABBIE_MQTT 1
+  #endif
+#endif
+
 // OLED display configuration - Using U8g2 with SH1106 driver
 U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
@@ -56,6 +67,15 @@ WebServer server(80);
 
 // DNS server for captive portal
 DNSServer dnsServer;
+
+#ifdef TABBIE_MQTT
+WiFiClient mqttWifiClient;
+PubSubClient mqttClient(mqttWifiClient);
+unsigned long lastMqttReconnect = 0;
+void mqttLoop();
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void applyAnimation(const String& anim, const String& task, unsigned long durSec);
+#endif
 
 // WiFi credentials storage
 Preferences preferences;
@@ -167,7 +187,16 @@ void setup() {
   
   // Load WiFi credentials (don't connect yet - animations first!)
   loadWiFiCredentials();
-  
+
+#ifdef TABBIE_MQTT
+  // Configure the MQTT client (connection happens later, once WiFi is up)
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+  Serial.print("📡 MQTT bridge enabled - broker ");
+  Serial.print(MQTT_HOST); Serial.print(":"); Serial.println(MQTT_PORT);
+#endif
+
   // DON'T setup web server here - it will be started in startNormalMode() or startSetupMode()
   // after WiFi is properly initialized
   
@@ -502,7 +531,12 @@ void loop() {
   
   // Handle WiFi connection (non-blocking, runs in background)
   handleWiFiConnection();
-  
+
+#ifdef TABBIE_MQTT
+  // Service the MQTT bridge (non-blocking; only acts once WiFi is up)
+  mqttLoop();
+#endif
+
   // Handle web server requests
   server.handleClient();
   
@@ -859,6 +893,79 @@ void handleServoTest() {
     server.send(400, "application/json", "{\"error\":\"No position specified\"}");
   }
 }
+
+#ifdef TABBIE_MQTT
+// Apply an animation command from the MQTT bridge. Mirrors handleAnimation().
+void applyAnimation(const String& anim, const String& task, unsigned long durSec) {
+  if (anim.length() == 0) return;
+  currentAnimation = anim;
+  currentTask = task;
+  animationStartTime = millis();
+  animationTriggeredViaAPI = true;
+  idleLoopCount = 0;
+  currentServoPos = SERVO_CENTER;
+  targetServoPos = SERVO_CENTER;
+  neckServo.write(SERVO_CENTER);
+  if (anim == "focus" && durSec > 0) {
+    focusStartTime = millis();
+    focusDuration = durSec * 1000;
+    focusHalfwayDone = false;
+  } else {
+    focusDuration = 0;
+    focusHalfwayDone = false;
+  }
+  if (anim == "paused") {
+    lastPausedShakeTime = millis();
+  }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  // Accept JSON {"animation":"..","task":"..","duration":N} or a bare name string.
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, payload, length);
+  if (!err) {
+    String anim = doc["animation"] | "";
+    String task = doc["task"] | "";
+    unsigned long dur = doc["duration"] | 0UL;
+    if (anim.length()) {
+      applyAnimation(anim, task, dur);
+      Serial.print("📩 MQTT cmd: "); Serial.println(anim);
+    }
+  } else {
+    String raw;
+    for (unsigned int i = 0; i < length; i++) raw += (char)payload[i];
+    raw.trim();
+    if (raw.length()) {
+      applyAnimation(raw, "mqtt", 0);
+      Serial.print("📩 MQTT cmd (raw): "); Serial.println(raw);
+    }
+  }
+}
+
+void mqttLoop() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (!mqttClient.connected()) {
+    unsigned long now = millis();
+    if (now - lastMqttReconnect < 5000) return;   // throttle reconnects
+    lastMqttReconnect = now;
+    bool ok;
+#if defined(MQTT_USER)
+    ok = mqttClient.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS);
+#else
+    ok = mqttClient.connect(MQTT_CLIENT_ID);
+#endif
+    if (ok) {
+      mqttClient.subscribe(MQTT_CMD_TOPIC);
+      mqttClient.publish(MQTT_STATUS_TOPIC, "online", true);
+      Serial.println("✅ MQTT connected");
+    } else {
+      Serial.print("❌ MQTT connect failed, rc="); Serial.println(mqttClient.state());
+    }
+    return;
+  }
+  mqttClient.loop();
+}
+#endif  // TABBIE_MQTT
 
 void updateDisplay() {
   // Handle startup animation - play once then go to idle
