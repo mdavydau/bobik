@@ -101,11 +101,12 @@ Forward an external port to the board's port 80. ⚠️ The board has **no
 authentication** — exposing it publicly lets anyone change the face or factory-
 reset WiFi. Only do this behind a reverse proxy that adds auth/TLS, or don't.
 
-### D. MQTT bridge (most robust for remote, needs a firmware addition)
+### D. MQTT bridge (most robust for remote)
 Have the ESP32 **dial out** to an MQTT broker running on your server and
 subscribe to a command topic. This traverses NAT with no home node and no port-
-forwarding — the board initiates the connection. It requires adding an MQTT
-client (`PubSubClient`) to the firmware. Not implemented yet; ask if you want it.
+forwarding — the board initiates the connection. This is implemented with
+`PubSubClient`; enable it by creating `firmware/src/mqtt_config.h`.
+See [`MQTT_BRIDGE.md`](MQTT_BRIDGE.md).
 
 ---
 

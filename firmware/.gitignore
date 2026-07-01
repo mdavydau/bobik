@@ -6,6 +6,7 @@ src/mqtt_config.h
 
 # Build artifacts
 .pio/
+compile_commands.json
 .vscode/
 
 # OS files

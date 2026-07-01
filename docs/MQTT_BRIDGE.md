@@ -41,6 +41,34 @@ cd .. && pio run --target upload
 On boot the board connects, subscribes to `MQTT_CMD_TOPIC`, retries every 5s if
 the broker is down, and never blocks the display loop.
 
+### macOS flashing notes
+
+Install the CLI tools once:
+
+```bash
+brew install platformio mosquitto
+```
+
+Check that the ESP32 is visible:
+
+```bash
+pio device list
+# or:
+ls /dev/cu.*
+```
+
+Most boards appear as a CP2102/CP210x serial device such as
+`/dev/cu.usbserial-0001`. If no USB serial port appears, install the Silicon
+Labs driver:
+
+```bash
+brew install --cask silicon-labs-vcp-driver
+```
+
+The firmware uses `huge_app.csv` and explicit PlatformIO dependencies so clean
+builds work reproducibly with the MQTT and animation assets. A first clean build
+can take several minutes; repeat builds should normally finish in a few seconds.
+
 ---
 
 ## 2. Run a broker on your server (Mosquitto)
@@ -91,7 +119,7 @@ MQTT_HOST=YOUR_SERVER MQTT_USER=tabbie MQTT_PASS=secret \
   tools/tabbie-pub.sh angry
 ```
 
-Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup`.
+Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup sweat coffee`.
 
 ---
 

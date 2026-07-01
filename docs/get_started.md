@@ -65,14 +65,27 @@ I recommend buying the parts on **Amazon or Aliexpress**
 3. **PlatformIO** (for programming the ESP32) - [Download](https://platformio.org/) - Uploads firmware to ESP32
 4. **Git** - [Download Git](https://git-scm.com/)  To download via command line using `git clone`  
 
+On macOS, the command-line setup is:
+
+```bash
+brew install platformio mosquitto
+```
+
+If the ESP32 serial port does not show up under `/dev/cu.*`, install the CP210x
+USB driver:
+
+```bash
+brew install --cask silicon-labs-vcp-driver
+```
+
 
 >Download:
 
 **Option A: Using Git**   
 
 ```bash
-git clone https://github.com/Peeeeteer/tabbie.git
-cd tabbie
+git clone https://github.com/mdavydau/bobik.git
+cd bobik
 ```
 
 **Option B: Download as ZIP**
@@ -141,35 +154,39 @@ GG. done
 cd firmware
 ```
 
-2. **Set up your WiFi credentials:**
-   - Find the file `src/.env.example`
-   - Make a copy of it in the same location
-   - Rename the copy to `.env` (remove "example")
-   - Open `.env` in Visual Studio Code or any text editor
-   - Add your WiFi details: 
+2. **Optional: enable MQTT remote control**
 
-```
-WIFI_SSID=your_wifi_name_here
-WIFI_PASSWORD=your_wifi_password_here
+If you want Bobik to connect to a remote MQTT broker, create a local config:
+
+```bash
+cp src/mqtt_config.example.h src/mqtt_config.h
+$EDITOR src/mqtt_config.h
 ```
 
-**Tip:** Make sure its the same Wifi that your computer is connected to 
+Fill in `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`, and `MQTT_PASS`.
+`src/mqtt_config.h` is ignored by git so credentials do not get committed.
+See [`MQTT_BRIDGE.md`](MQTT_BRIDGE.md) for the full MQTT setup.
 
 3. **Upload the code to your ESP32:**
 
+The first clean build can take a few minutes because U8g2 and animation assets
+are compiled. Later builds should be much faster.
+
 ```bash
-
-# Go to the dashboard folder
-cd firmware
-
 pio run --target upload
 ```
 
 **Tip:** If upload fails, hold down the BOOT button on your ESP32 while uploading
 and make sure that your are in still in the `firmware` directory when uploading 
 
+4. **Configure WiFi**
 
-4. Finish assembling Tabbie.
+The current firmware stores WiFi credentials on the ESP32 itself. On a new board
+or after reset, connect your computer/phone to the `Tabbie-Setup` WiFi network
+and follow the setup page to save your WiFi. If the board was already configured,
+normal uploads do not erase those saved WiFi settings.
+
+5. Finish assembling Tabbie.
 
 Put the screen in the front -> front in the head
 

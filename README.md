@@ -46,6 +46,7 @@ Powered by:
 
 Start with the step-by-step guide (WITH A **15 MINUTE VIDEO TUTORIAL**):
 - 👉 See: [`docs/get_started.md`](docs/get_started.md)
+- 🍎 Flash from macOS: [`docs/FLASHING_MAC.md`](docs/FLASHING_MAC.md)
 
 That guide covers:
 - Installing the Dashboard
@@ -81,6 +82,5 @@ tabbie/
 ## 🤝 Contributing
 
 Contributions are welcome, but lets talk first!
-
 
 
