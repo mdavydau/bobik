@@ -140,6 +140,9 @@ DevMode is the internal debug screen. It is a live feature flag toggled over
 MQTT, so switching it on/off does not require reflashing. It stays on until
 switched off and rotates through WiFi/MQTT, current face/task/schedule, and
 system values. The helper accepts both `dev-*` and `debug-*` aliases for this
+screen. Use `/api/debug` for the shorter 8-second status screen. While DevMode
+is on, the firmware also writes a compact snapshot to the USB serial log every
+5 seconds.
 
 Mochi-style faces can be switched over MQTT with friendly aliases:
 
@@ -150,26 +153,68 @@ tools/tabbie-pub.sh mochi-love
 tools/tabbie-pub.sh big-smile
 tools/tabbie-pub.sh status-alert
 ```
-screen. Use `/api/debug` for the shorter 8-second status screen. While DevMode
-is on, the firmware also writes a compact snapshot to the USB serial log every
-5 seconds.
 
 ---
 
 ## 4. Voice-assistant integration
 
-Map intents to `tabbie-pub` (or a direct `mosquitto_pub`):
+On the server, the voice assistant should call `tools/tabbie-pub.sh`. The
+script publishes to `tabbie/cmd`; Bobik receives the command over MQTT and
+changes the face without reflashing.
+
+Server setup:
+
+```bash
+cd /root/bobik
+source .mqtt.env
+
+# Smoke test: should switch the device immediately.
+tools/tabbie-pub.sh status-alert "voice assistant smoke test"
+```
+
+Expected `.mqtt.env` variables:
+
+```bash
+export MQTT_HOST=localhost
+export MQTT_PORT=1883
+export MQTT_USER=tabbie
+export MQTT_PASS='your-broker-password'
+export MQTT_TOPIC=tabbie/cmd
+```
+
+Intent mapping:
 
 ```
-"make tabbie angry"   -> tabbie-pub angry
-"tabbie focus mode"   -> tabbie-pub focus
-"tabbie celebrate"    -> tabbie-pub complete
+"make tabbie angry"       -> tools/tabbie-pub.sh angry
+"tabbie focus mode"       -> tools/tabbie-pub.sh focus
+"tabbie celebrate"        -> tools/tabbie-pub.sh complete
+"tabbie mochi happy"      -> tools/tabbie-pub.sh mochi-happy
+"tabbie mochi angry"      -> tools/tabbie-pub.sh mochi-angry
+"tabbie mochi love"       -> tools/tabbie-pub.sh mochi-love
+"tabbie big smile"        -> tools/tabbie-pub.sh big-smile
+"tabbie status reminder"  -> tools/tabbie-pub.sh status-alert
+"tabbie dev mode on"      -> tools/tabbie-pub.sh dev-on
+"tabbie dev mode off"     -> tools/tabbie-pub.sh dev-off
 ```
 
 Watch the board come/go online:
 
 ```bash
-mosquitto_sub -h YOUR_SERVER -u tabbie -P secret -t tabbie/status
+source .mqtt.env
+mosquitto_sub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" -t tabbie/status
+```
+
+Check the currently shown face from the LAN:
+
+```bash
+curl -s http://192.168.233.229/api/status
+```
+
+Direct raw MQTT payloads also work if the assistant cannot call shell scripts:
+
+```bash
+mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" \
+  -t tabbie/cmd -m '{"animation":"status_alert","task":"voice assistant"}'
 ```
 
 The after-hours "angry when working past 18:00" rule can also run on the server
