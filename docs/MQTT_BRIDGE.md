@@ -187,6 +187,7 @@ export MQTT_PORT=1883
 export MQTT_USER=tabbie
 export MQTT_PASS='your-broker-password'
 export MQTT_TOPIC=tabbie/cmd
+export MQTT_NOTIFY_TOPIC=tabbie/notify
 ```
 
 Intent mapping:
@@ -222,6 +223,45 @@ Example event:
 
 ```json
 {"event":"face-change","anim":"sleepy","animation":"sleepy","task":"sleepy time","uptime":12345,"time":"2026-07-01 19:34"}
+```
+
+Minimal server setup for Telegram forwarding:
+
+```bash
+cd /root/bobik
+source .mqtt.env
+source .telegram.env
+tools/tabbie-notify-telegram.sh once
+```
+
+Expected `.telegram.env` variables:
+
+```bash
+export TELEGRAM_BOT_TOKEN='your-telegram-bot-token'
+export TELEGRAM_CHAT_ID='your-chat-or-channel-id'
+```
+
+Create both files from the committed examples, then fill in real server values:
+
+```bash
+cp .mqtt.env.example .mqtt.env
+cp .telegram.env.example .telegram.env
+$EDITOR .mqtt.env .telegram.env
+```
+
+For the current Bobik flow, run the helper from cron every minute. It listens
+for almost the full minute, forwards any `tabbie/notify` events, then exits so
+cron can start the next window:
+
+```cron
+* * * * cd /root/bobik && . ./.mqtt.env && . ./.telegram.env && flock -n /tmp/tabbie-notify.lock tools/tabbie-notify-telegram.sh cron >> /var/log/tabbie-notify.log 2>&1
+```
+
+This creates the live loop:
+
+```text
+ESP32 schedule/face change -> tabbie/notify -> MQTT broker -> cron helper -> Telegram
+Telegram/assistant "stop" -> tools/tabbie-pub.sh stop -> tabbie/cmd -> ESP32
 ```
 
 Check the currently shown face from the LAN:

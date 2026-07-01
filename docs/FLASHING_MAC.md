@@ -33,8 +33,10 @@ After boot, the ESP32 runs these Europe/Warsaw on-device schedules:
 | 00:10 | internal only | reset the stop-escalation flag for the next day |
 
 Every real face change publishes a JSON event to MQTT topic `tabbie/notify`.
-The server-side Bobik Telegram bridge should subscribe to that topic and post
-the event into Bobik's Telegram channel.
+The server-side Bobik Telegram bridge subscribes to that topic and posts the
+event into Bobik's Telegram channel. See
+[`MQTT_BRIDGE.md`](MQTT_BRIDGE.md#4-voice-assistant-integration) for the cron
+helper.
 
 Stop the 16:00-17:00 escalation for the current day:
 

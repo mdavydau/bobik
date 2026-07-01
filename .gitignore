@@ -8,6 +8,7 @@ firmware/.env
 firmware/wifi.env
 .mqtt.env
 .mqtt-creds.txt
+.telegram.env
 TABBIE_SYNC_IMPLEMENTATION.md
 sounds/
 
