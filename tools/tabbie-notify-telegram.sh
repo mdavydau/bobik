@@ -9,6 +9,7 @@
 # Required Telegram env:
 #   TELEGRAM_BOT_TOKEN
 #   TELEGRAM_CHAT_ID
+#   TELEGRAM_MESSAGE_THREAD_ID      optional, for Telegram forum topics
 #   TELEGRAM_API_BASE               optional, default https://api.telegram.org/bot
 #
 # MQTT env:
@@ -23,6 +24,7 @@ PORT="${MQTT_PORT:-1883}"
 TOPIC="${MQTT_NOTIFY_TOPIC:-tabbie/notify}"
 WINDOW_SECONDS="${WINDOW_SECONDS:-58}"
 TELEGRAM_API_BASE="${TELEGRAM_API_BASE:-https://api.telegram.org/bot}"
+TELEGRAM_MESSAGE_THREAD_ID="${TELEGRAM_MESSAGE_THREAD_ID:-}"
 
 usage() {
   sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
@@ -115,6 +117,7 @@ send_telegram() {
   curl -fsS -m 10 --retry 2 -X POST \
     "${TELEGRAM_API_BASE}${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
+    ${TELEGRAM_MESSAGE_THREAD_ID:+-d "message_thread_id=${TELEGRAM_MESSAGE_THREAD_ID}"} \
     --data-urlencode "text=${text}" >/dev/null
 }
 
