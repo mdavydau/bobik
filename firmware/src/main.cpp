@@ -1266,6 +1266,22 @@ void checkScheduledFaces() {
       scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
       Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
                     s.animation, lt.tm_hour, lt.tm_min);
+      // Notify via MQTT so the server can forward to Telegram
+      #ifdef TABBIE_MQTT
+      if (mqttClient.connected()) {
+        String note = "{\"anim\":\"";
+        note += s.animation;
+        note += "\",\"task\":\"";
+        note += s.task;
+        note += "\",\"time\":\"";
+        char buf[6];
+        snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+        note += buf;
+        note += "\"}";
+        mqttClient.publish("tabbie/notify", note.c_str());
+        Serial.print("📢 MQTT notify: "); Serial.println(note);
+      }
+      #endif
     }
   }
 }
