@@ -1,0 +1,69 @@
+{
+  "generatedBy": "tools/export_oled_animations.py",
+  "animations": [
+    {
+      "value": "paused",
+      "label": "Angry / Paused",
+      "asset": "angry01",
+      "kind": "bitmap",
+      "frameCount": 12,
+      "fps": 10
+    },
+    {
+      "value": "coffee",
+      "label": "Coffee",
+      "asset": "coffee01",
+      "kind": "bitmap",
+      "frameCount": 14,
+      "fps": 10
+    },
+    {
+      "value": "focus",
+      "label": "Focus",
+      "asset": "focus01",
+      "kind": "bitmap",
+      "frameCount": 65,
+      "fps": 8
+    },
+    {
+      "value": "idle",
+      "label": "Idle",
+      "asset": "idle01",
+      "kind": "bitmap",
+      "frameCount": 97,
+      "fps": 12
+    },
+    {
+      "value": "love",
+      "label": "Love",
+      "asset": "love01",
+      "kind": "bitmap",
+      "frameCount": 65,
+      "fps": 8
+    },
+    {
+      "value": "break",
+      "label": "Break / Relax",
+      "asset": "relax01",
+      "kind": "bitmap",
+      "frameCount": 65,
+      "fps": 8
+    },
+    {
+      "value": "startup",
+      "label": "Startup",
+      "asset": "startup01",
+      "kind": "bitmap",
+      "frameCount": 53,
+      "fps": 8
+    },
+    {
+      "value": "sweat",
+      "label": "Sweat",
+      "asset": "sweat01",
+      "kind": "bitmap",
+      "frameCount": 14,
+      "fps": 10
+    }
+  ]
+}

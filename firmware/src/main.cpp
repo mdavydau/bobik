@@ -145,6 +145,8 @@ unsigned long wifiRetryWaitUntil = 0;
 bool isDebugMode = false;
 unsigned long debugModeStartTime = 0;
 const unsigned long DEBUG_MODE_DURATION = 8000; // Show debug info for 8 seconds
+bool devModeEnabled = false; // Persistent diagnostics screen toggled remotely
+unsigned long lastDevLogAt = 0;
 
 // Physical button for showing debug info
 // Using GPIO27 - safe pin that's not a strapping pin
@@ -174,6 +176,7 @@ void handleCORS();
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec);
 void syncTimeIfNeeded();
 void checkScheduledFaces();
+void logDevSnapshot();
 void updateDisplay();
 void drawSetupMode();
 void drawConnecting();
@@ -191,8 +194,12 @@ void drawPomodoroAnimation();
 void drawTaskCompleteAnimation();
 void drawCoffeeAnimation();
 void drawDebugInfo();
+void drawDevInfo();
+String clipForDisplay(const String& value, int maxLen);
+void drawStatusMark(int x, int y, bool ok);
 void drawStatusOverlay();
 void flushDisplay(bool showOverlay = true);
+void setDevMode(bool enabled);
 void handleDebug();
 void handleReset();
 void handleServoTest();
@@ -589,6 +596,7 @@ void loop() {
   // Keep the clock synced and fire any time-of-day scheduled faces (on-device)
   syncTimeIfNeeded();
   checkScheduledFaces();
+  logDevSnapshot();
 
   // Update display animation (always runs, never blocked!)
   updateDisplay();
@@ -772,6 +780,7 @@ void handleStatus() {
   doc["task"] = currentTask;
   doc["uptime"] = millis();
   doc["setupMode"] = isInSetupMode;
+  doc["devMode"] = devModeEnabled;
 #ifdef TABBIE_MQTT
   doc["mqttEnabled"] = true;
   doc["mqttConnected"] = mqttClient.connected();
@@ -963,17 +972,95 @@ void handleServoTest() {
   }
 }
 
+void setDevMode(bool enabled) {
+  bool changed = (devModeEnabled != enabled);
+  devModeEnabled = enabled;
+
+  isDebugMode = false;
+
+  if (changed) {
+    display.clearBuffer();
+    display.sendBuffer();
+    lastDevLogAt = 0;
+  }
+
+  Serial.print("🔧 Dev mode ");
+  Serial.println(enabled ? "ON" : "OFF");
+}
+
+void logDevSnapshot() {
+  if (!devModeEnabled) return;
+
+  unsigned long now = millis();
+  if (lastDevLogAt != 0 && now - lastDevLogAt < 5000) return;
+  lastDevLogAt = now;
+
+  Serial.print("DEV status=");
+  Serial.print(wifiStatus);
+  Serial.print(" ip=");
+  Serial.print(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "-");
+  Serial.print(" rssi=");
+  Serial.print(WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) : "n/a");
+#ifdef TABBIE_MQTT
+  Serial.print(" mqtt=");
+  Serial.print(mqttClient.connected() ? "ok" : "fail");
+  Serial.print(" mqttState=");
+  Serial.print(mqttClient.state());
+#else
+  Serial.print(" mqtt=off");
+#endif
+  Serial.print(" anim=");
+  Serial.print(currentAnimation);
+  Serial.print(" task=");
+  Serial.print(currentTask);
+  Serial.print(" heap=");
+  Serial.println(ESP.getFreeHeap());
+}
+
 #ifdef TABBIE_MQTT
 // Apply an animation command from the MQTT bridge. Mirrors handleAnimation().
 void applyAnimation(const String& anim, const String& task, unsigned long durSec) {
   triggerAnimation(anim, task, durSec);
 }
 
+bool applyDevCommand(const String& value) {
+  String normalized = value;
+  normalized.trim();
+  normalized.toLowerCase();
+
+  if (normalized == "toggle") {
+    setDevMode(!devModeEnabled);
+    return true;
+  }
+  if (normalized == "1" || normalized == "true" || normalized == "on" || normalized == "enable" || normalized == "enabled") {
+    setDevMode(true);
+    return true;
+  }
+  if (normalized == "0" || normalized == "false" || normalized == "off" || normalized == "disable" || normalized == "disabled") {
+    setDevMode(false);
+    return true;
+  }
+  return false;
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // Accept JSON {"animation":"..","task":"..","duration":N} or a bare name string.
+  // Accept JSON {"animation":"..","task":"..","duration":N},
+  // JSON {"dev":true|false|"toggle"}, or a bare name string.
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
   if (!err) {
+    if (doc["dev"].is<bool>()) {
+      setDevMode(doc["dev"].as<bool>());
+      mqttClient.publish(MQTT_STATUS_TOPIC, devModeEnabled ? "dev:on" : "dev:off", true);
+      return;
+    }
+    if (doc["dev"].is<const char*>()) {
+      if (applyDevCommand(doc["dev"].as<const char*>())) {
+        mqttClient.publish(MQTT_STATUS_TOPIC, devModeEnabled ? "dev:on" : "dev:off", true);
+        return;
+      }
+    }
+
     String anim = doc["animation"] | "";
     String task = doc["task"] | "";
     unsigned long dur = doc["duration"] | 0UL;
@@ -986,6 +1073,27 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     for (unsigned int i = 0; i < length; i++) raw += (char)payload[i];
     raw.trim();
     if (raw.length()) {
+      String rawLower = raw;
+      rawLower.toLowerCase();
+      if (rawLower == "dev" || rawLower == "dev toggle") {
+        setDevMode(!devModeEnabled);
+        mqttClient.publish(MQTT_STATUS_TOPIC, devModeEnabled ? "dev:on" : "dev:off", true);
+        Serial.println("📩 MQTT dev toggle");
+        return;
+      }
+      if (rawLower == "dev on" || rawLower == "dev true" || rawLower == "dev enable") {
+        setDevMode(true);
+        mqttClient.publish(MQTT_STATUS_TOPIC, "dev:on", true);
+        Serial.println("📩 MQTT dev on");
+        return;
+      }
+      if (rawLower == "dev off" || rawLower == "dev false" || rawLower == "dev disable") {
+        setDevMode(false);
+        mqttClient.publish(MQTT_STATUS_TOPIC, "dev:off", true);
+        Serial.println("📩 MQTT dev off");
+        return;
+      }
+
       applyAnimation(raw, "mqtt", 0);
       Serial.print("📩 MQTT cmd (raw): "); Serial.println(raw);
     }
@@ -1144,7 +1252,13 @@ void updateDisplay() {
     drawSetupMode();
     return;
   }
-  
+
+  // DevMode is a persistent internal diagnostics screen controlled over MQTT.
+  if (devModeEnabled) {
+    drawDevInfo();
+    return;
+  }
+
   // Handle debug mode - show device info temporarily
   if (isDebugMode) {
     if (millis() - debugModeStartTime < DEBUG_MODE_DURATION) {
@@ -1179,8 +1293,18 @@ void updateDisplay() {
   }
 }
 
+void drawStatusMark(int x, int y, bool ok) {
+  if (ok) {
+    display.drawLine(x, y + 4, x + 1, y + 6);
+    display.drawLine(x + 1, y + 6, x + 4, y + 1);
+  } else {
+    display.drawLine(x, y + 1, x + 4, y + 5);
+    display.drawLine(x + 4, y + 1, x, y + 5);
+  }
+}
+
 void drawStatusOverlay() {
-  if (!hasCompletedStartup || isDebugMode || isInSetupMode) return;
+  if (!devModeEnabled || !hasCompletedStartup || isDebugMode || isInSetupMode) return;
 
   bool wifiOk = (WiFi.status() == WL_CONNECTED && wifiStatus == "connected");
 #ifdef TABBIE_MQTT
@@ -1194,14 +1318,16 @@ void drawStatusOverlay() {
   display.setDrawColor(1);
   display.setFont(u8g2_font_5x7_tf);
 
-  display.drawStr(102, 7, "W");
-  display.drawStr(116, 7, "M");
+  display.drawStr(97, 7, "W");
+  drawStatusMark(105, 1, wifiOk);
+  display.drawStr(114, 7, "M");
+  drawStatusMark(123, 1, mqttOk);
+}
 
-  if (wifiOk) display.drawBox(98, 2, 3, 5);
-  else display.drawFrame(98, 2, 3, 5);
-
-  if (mqttOk) display.drawBox(112, 2, 3, 5);
-  else display.drawFrame(112, 2, 3, 5);
+String clipForDisplay(const String& value, int maxLen) {
+  if (value.length() <= maxLen) return value;
+  if (maxLen <= 3) return value.substring(0, maxLen);
+  return value.substring(0, maxLen - 3) + "...";
 }
 
 void flushDisplay(bool showOverlay) {
@@ -1301,6 +1427,88 @@ void drawDebugInfo() {
     display.drawStr(0, 56, "Check WiFi settings");
   }
   
+  flushDisplay(false);
+}
+
+void drawDevInfo() {
+  display.clearBuffer();
+  display.setFont(u8g2_font_5x7_tf);
+
+  unsigned long now = millis();
+  int page = (now / 3000) % 3;
+
+  if (page == 0) {
+    display.drawStr(0, 7, "DEV 1/3 NET");
+
+    String wifi = "W " + wifiStatus;
+    display.drawStr(0, 17, clipForDisplay(wifi, 21).c_str());
+
+    String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "-";
+    display.drawStr(0, 27, clipForDisplay("IP " + ip, 21).c_str());
+
+    String rssi = WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) + "dBm" : "n/a";
+    display.drawStr(0, 37, clipForDisplay("RSSI " + rssi, 21).c_str());
+
+#ifdef TABBIE_MQTT
+    String mqtt = mqttClient.connected() ? "M OK" : "M FAIL " + String(mqttClient.state());
+#else
+    String mqtt = "M OFF";
+#endif
+    display.drawStr(0, 47, clipForDisplay(mqtt, 21).c_str());
+    display.drawStr(0, 57, clipForDisplay("SSID " + WiFi.SSID(), 21).c_str());
+  } else if (page == 1) {
+    display.drawStr(0, 7, "DEV 2/3 FACE");
+
+    display.drawStr(0, 17, clipForDisplay("ANIM " + currentAnimation, 21).c_str());
+    display.drawStr(0, 27, clipForDisplay("TASK " + currentTask, 21).c_str());
+
+    String age = "AGE " + String((now - animationStartTime) / 1000) + "s";
+    age += animationTriggeredViaAPI ? " API" : " AUTO";
+    display.drawStr(0, 37, clipForDisplay(age, 21).c_str());
+
+    String focus = "FOCUS ";
+    if (focusDuration > 0) {
+      unsigned long elapsed = min(now - focusStartTime, focusDuration) / 1000;
+      focus += String(elapsed) + "/" + String(focusDuration / 1000) + "s";
+    } else {
+      focus += "-";
+    }
+    display.drawStr(0, 47, clipForDisplay(focus, 21).c_str());
+
+    String sched = "SCHED ";
+    if (scheduledRevertAt != 0) {
+      unsigned long left = scheduledRevertAt > now ? (scheduledRevertAt - now) / 1000 : 0;
+      sched += scheduledActiveAnim + " " + String(left) + "s";
+    } else {
+      sched += "-";
+    }
+    display.drawStr(0, 57, clipForDisplay(sched, 21).c_str());
+  } else {
+    display.drawStr(0, 7, "DEV 3/3 SYS");
+
+    display.drawStr(0, 17, clipForDisplay("UP " + String(now / 1000) + "s", 21).c_str());
+    display.drawStr(0, 27, clipForDisplay("HEAP " + String(ESP.getFreeHeap()), 21).c_str());
+
+    String clock = "CLK ";
+    if (timeSynced) {
+      time_t t = time(nullptr);
+      struct tm lt;
+      localtime_r(&t, &lt);
+      char buf[12];
+      strftime(buf, sizeof(buf), "%H:%M:%S", &lt);
+      clock += buf;
+    } else {
+      clock += "sync...";
+    }
+    display.drawStr(0, 37, clipForDisplay(clock, 21).c_str());
+
+    String servo = "SERVO " + String(currentServoPos) + ">" + String(targetServoPos);
+    display.drawStr(0, 47, clipForDisplay(servo, 21).c_str());
+
+    String err = lastError.length() ? "ERR " + lastError : "ERR -";
+    display.drawStr(0, 57, clipForDisplay(err, 21).c_str());
+  }
+
   flushDisplay(false);
 }
 

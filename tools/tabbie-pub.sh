@@ -8,6 +8,10 @@
 #
 #   tabbie-pub <expression> [task text]
 #   tabbie-pub angry
+#   tabbie-pub dev-on
+#   tabbie-pub dev-off
+#   tabbie-pub debug-on
+#   tabbie-pub debug-off
 #   tabbie-pub focus "writing the report"
 #
 # Config via env (or edit defaults below):
@@ -24,7 +28,11 @@ cmd="${1:-}"; shift || true
 task="${*:-mqtt}"
 [ -z "$cmd" ] && { echo "usage: tabbie-pub <expression> [task]"; exit 1; }
 
+payload=""
 case "$cmd" in
+  dev|dev-toggle|debug|debug-toggle) payload='{"dev":"toggle"}' ;;
+  dev-on|dev-enable|devmode-on|debug-on|debug-enable)   payload='{"dev":true}' ;;
+  dev-off|dev-disable|devmode-off|debug-off|debug-disable) payload='{"dev":false}' ;;
   angry|mad)               anim=paused ;;
   happy|love)              anim=love ;;
   done|complete|celebrate) anim=complete ;;
@@ -42,7 +50,7 @@ auth=()
 [ -n "${MQTT_USER:-}" ] && auth+=(-u "$MQTT_USER")
 [ -n "${MQTT_PASS:-}" ] && auth+=(-P "$MQTT_PASS")
 
-payload="{\"animation\":\"$anim\",\"task\":\"$task\"}"
-mosquitto_pub -h "$HOST" -p "$PORT" "${auth[@]}" -t "$TOPIC" -m "$payload" \
+[ -n "$payload" ] || payload="{\"animation\":\"$anim\",\"task\":\"$task\"}"
+mosquitto_pub -h "$HOST" -p "$PORT" ${auth[@]+"${auth[@]}"} -t "$TOPIC" -m "$payload" \
   && echo "published -> $TOPIC : $payload" \
   || { echo "ERROR: publish failed (broker $HOST:$PORT)" >&2; exit 1; }

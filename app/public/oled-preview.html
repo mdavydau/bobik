@@ -196,12 +196,7 @@
         <label>
           Screen
           <select id="mode">
-            <option value="idle">Idle animation</option>
-            <option value="love">Love animation</option>
-            <option value="focus">Focus</option>
-            <option value="pomodoro">Pomodoro</option>
-            <option value="complete">Complete</option>
-            <option value="debug">Debug status</option>
+            <option value="idle">Idle</option>
           </select>
         </label>
 
@@ -262,6 +257,17 @@
         animationPromises: {},
         lastLivePoll: 0,
       };
+      const generatedScreens = [
+        { value: "pomodoro", label: "Pomodoro", kind: "generated" },
+        { value: "complete", label: "Complete", kind: "generated" },
+        { value: "dev", label: "Dev diagnostics", kind: "generated" },
+        { value: "debug", label: "Debug status", kind: "generated" },
+      ];
+      let screens = [
+        { value: "idle", label: "Idle", asset: "idle01", kind: "bitmap" },
+        { value: "love", label: "Love", asset: "love01", kind: "bitmap" },
+        ...generatedScreens,
+      ];
 
       function clear() {
         ctx.fillStyle = "#050607";
@@ -331,49 +337,116 @@
         text(`MQTT ${mqtt.checked ? "OK" : "FAIL"} /api/status`, 0, 49);
       }
 
-      function drawOverlay() {
-        if (!overlay.checked || mode.value === "debug") return;
-        ctx.fillStyle = "#050607";
-        ctx.fillRect(96, 0, 32, 9);
-        text("W", 102, 1, 7);
-        text("M", 116, 1, 7);
-        if (wifi.checked) px(98, 2, 3, 5);
-        else {
-          ctx.strokeStyle = pixel;
-          ctx.strokeRect(98.5, 2.5, 2, 4);
-        }
-        if (mqtt.checked) px(112, 2, 3, 5);
-        else {
-          ctx.strokeStyle = pixel;
-          ctx.strokeRect(112.5, 2.5, 2, 4);
+      function drawDevInfo() {
+        const page = Math.floor(state.frame / 34) % 3;
+        if (page === 0) {
+          text("DEV 1/3 NET", 0, 1, 7);
+          text(`W ${wifi.checked ? "connected" : "failed"}`, 0, 11, 7);
+          text(trim(`IP ${ip.textContent}`, 21), 0, 21, 7);
+          text(trim(`RSSI ${rssi.textContent}`, 21), 0, 31, 7);
+          text(`M ${mqtt.checked ? "OK" : `FAIL ${mqttState.textContent}`}`, 0, 41, 7);
+          text(trim(`SSID ${ssid.textContent}`, 21), 0, 51, 7);
+        } else if (page === 1) {
+          text("DEV 2/3 FACE", 0, 1, 7);
+          text(trim(`ANIM ${mode.value}`, 21), 0, 11, 7);
+          text(trim(`TASK ${task.value}`, 21), 0, 21, 7);
+          text(`AGE ${Math.floor(state.frame / 11)}s API`, 0, 31, 7);
+          text("FOCUS -", 0, 41, 7);
+          text("SCHED -", 0, 51, 7);
+        } else {
+          text("DEV 3/3 SYS", 0, 1, 7);
+          text(`UP ${Math.floor(state.frame / 11)}s`, 0, 11, 7);
+          text("HEAP preview", 0, 21, 7);
+          text("CLK preview", 0, 31, 7);
+          text("SERVO 90>90", 0, 41, 7);
+          text("ERR -", 0, 51, 7);
         }
       }
 
-      async function loadAnimation(name) {
-        if (state.animations[name]) return state.animations[name];
-        if (state.animationPromises[name]) return state.animationPromises[name];
-        state.animationPromises[name] = fetch(`/animations/${name}01.json`)
+      function drawOverlay() {
+        if (!overlay.checked || mode.value === "debug" || mode.value === "dev") return;
+        ctx.fillStyle = "#050607";
+        ctx.fillRect(96, 0, 32, 9);
+        text("W", 97, 1, 7);
+        drawStatusMark(105, 1, wifi.checked);
+        text("M", 114, 1, 7);
+        drawStatusMark(123, 1, mqtt.checked);
+      }
+
+      function drawStatusMark(x, y, ok) {
+        ctx.strokeStyle = pixel;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (ok) {
+          ctx.moveTo(x, y + 4);
+          ctx.lineTo(x + 1, y + 6);
+          ctx.lineTo(x + 4, y + 1);
+        } else {
+          ctx.moveTo(x, y + 1);
+          ctx.lineTo(x + 4, y + 5);
+          ctx.moveTo(x + 4, y + 1);
+          ctx.lineTo(x, y + 5);
+        }
+        ctx.stroke();
+      }
+
+      function currentScreen() {
+        return screens.find((screen) => screen.value === mode.value) || screens[0];
+      }
+
+      function populateScreens(nextScreens) {
+        const selected = mode.value;
+        mode.innerHTML = "";
+        for (const screen of nextScreens) {
+          const option = document.createElement("option");
+          option.value = screen.value;
+          option.textContent = screen.label;
+          mode.appendChild(option);
+        }
+        if (nextScreens.some((screen) => screen.value === selected)) {
+          mode.value = selected;
+        }
+      }
+
+      async function loadManifest() {
+        try {
+          const response = await fetch("/animations/manifest.json", { cache: "no-store" });
+          const manifest = await response.json();
+          screens = [...manifest.animations, ...generatedScreens];
+          populateScreens(screens);
+        } catch (error) {
+          populateScreens(screens);
+        }
+      }
+
+      async function loadAnimation(asset) {
+        if (state.animations[asset]) return state.animations[asset];
+        if (state.animationPromises[asset]) return state.animationPromises[asset];
+        state.animationPromises[asset] = fetch(`/animations/${asset}.json`)
           .then((response) => response.json())
           .then((json) => {
-            state.animations[name] = json.frames;
-            delete state.animationPromises[name];
-            return state.animations[name];
+            state.animations[asset] = json.frames;
+            delete state.animationPromises[asset];
+            return state.animations[asset];
           });
-        return state.animationPromises[name];
+        return state.animationPromises[asset];
       }
 
       async function draw() {
         clear();
-        if (mode.value === "idle" || mode.value === "love") {
-          const frames = state.animations[mode.value];
+        const screen = currentScreen();
+        if (screen.kind === "bitmap") {
+          const frames = state.animations[screen.asset];
           if (frames) {
             drawBitmapFrame(frames[state.frame % frames.length]);
           } else {
             text("loading animation", 12, 27);
-            loadAnimation(mode.value).then(draw);
+            loadAnimation(screen.asset).then(draw);
           }
         } else if (mode.value === "debug") {
           drawDebug();
+        } else if (mode.value === "dev") {
+          drawDevInfo();
         } else if (mode.value === "complete") {
           drawComplete();
         } else {
@@ -431,6 +504,8 @@
         });
       }
 
+      populateScreens(screens);
+      loadManifest().then(draw);
       requestAnimationFrame(tick);
     </script>
   </body>

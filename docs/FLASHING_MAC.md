@@ -75,6 +75,35 @@ as `http://tabbie.local`, or paste the direct IP address shown on the device
 debug screen, for example `http://192.168.233.229`, if macOS mDNS resolution is
 slow. The `PNG` button saves the current preview frame for screenshots.
 
+When a new face header is added under `firmware/src/`, refresh the preview
+assets:
+
+```bash
+python3 tools/export_oled_animations.py
+```
+
+This regenerates `app/public/animations/*.json` and `manifest.json`, and the
+preview page will automatically show every exported face in the `Screen` menu.
+
+## Mac tools for previewing and monitoring
+
+Use these tools for different jobs:
+
+| Tool | Best for | Install / run |
+| --- | --- | --- |
+| Local OLED preview | Fast face/layout checks from exported firmware assets | `cd app && PATH=/opt/homebrew/opt/node@22/bin:$PATH npm run dev -- --host 127.0.0.1` |
+| Wokwi for VS Code | Full ESP32 + virtual OLED simulation without flashing hardware | Install VS Code, then install the `Wokwi Simulator` extension |
+| Wokwi CLI | Terminal/CI Wokwi simulations after the VS Code setup is working | `curl -L https://wokwi.com/ci/install.sh \| sh` |
+| PlatformIO monitor | Live logs from the real ESP32 over USB | `cd firmware && pio device monitor -p /dev/cu.usbserial-0001 -b 115200` |
+| Arduino IDE | GUI serial monitor / serial plotter for the real ESP32 | `brew install --cask arduino-ide` |
+
+Wokwi needs two project files in the repo root when we wire it up:
+`wokwi.toml` points at the compiled firmware/ELF, and `diagram.json` describes
+the ESP32 + OLED wiring. For Bobik the useful target is an ESP32 plus a 128x64
+I2C SSD1306-compatible OLED. Our physical display is SH1106, but the preview
+and current firmware drawing are 128x64 monochrome, so Wokwi is still useful for
+screen/layout iteration before real flashing.
+
 ## 4. Configure WiFi
 
 WiFi credentials are saved on the ESP32 in Preferences. A normal firmware upload

@@ -25,6 +25,11 @@ Base URL: `http://<tabbie-host>` where `<tabbie-host>` is `tabbie.local`
 | `POST` | `/api/debug` | — | Show device info on screen briefly |
 | `POST` | `/api/reset` | — | Clear WiFi creds and reboot into setup mode |
 
+`GET /api/status` also includes `devMode`. Over MQTT, publish `{"dev":true}`,
+`{"dev":false}`, or `{"dev":"toggle"}` to show or hide the persistent on-device
+DevMode diagnostics screen. The helper supports `tools/tabbie-pub.sh dev-on`,
+`dev-off`, `debug-on`, and `debug-off` aliases for the same screen.
+
 ### Expressions (`animation` values)
 
 `idle` · `focus` · `break` · `paused` (animated **angry**) · `love` ·
