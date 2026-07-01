@@ -13,6 +13,14 @@ interface TabbieStatus {
   uptime: number;
   connectedDevices: number;
   ip: string;
+  ssid?: string;
+  rssi?: number;
+  setupMode?: boolean;
+  timeSynced?: boolean;
+  localTime?: string;
+  mqttEnabled?: boolean;
+  mqttConnected?: boolean;
+  mqttState?: number;
 }
 
 type TabbieActivityState = 'idle' | 'pomodoro' | 'break' | 'complete' | 'focus' | 'paused';
@@ -89,7 +97,7 @@ export const TabbieProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         console.log('✅ Connected to Tabbie at', address, ':', status);
         return true;
       }
-    } catch (error) {
+    } catch {
       console.log(`⏳ Could not reach ${address}`);
     }
     return false;
@@ -397,4 +405,3 @@ export const TabbieProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   return <TabbieContext.Provider value={value}>{children}</TabbieContext.Provider>;
 };
-

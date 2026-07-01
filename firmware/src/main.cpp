@@ -770,6 +770,14 @@ void handleStatus() {
   doc["task"] = currentTask;
   doc["uptime"] = millis();
   doc["setupMode"] = isInSetupMode;
+#ifdef TABBIE_MQTT
+  doc["mqttEnabled"] = true;
+  doc["mqttConnected"] = mqttClient.connected();
+  doc["mqttState"] = mqttClient.state();
+#else
+  doc["mqttEnabled"] = false;
+  doc["mqttConnected"] = false;
+#endif
 
   // On-device local time (Europe/Warsaw) so schedules are verifiable
   doc["timeSynced"] = timeSynced;
