@@ -13,6 +13,7 @@
 #   tabbie-pub debug-on
 #   tabbie-pub debug-off
 #   tabbie-pub mochi-happy
+#   tabbie-pub status-alert
 #   tabbie-pub focus "writing the report"
 #
 # Config via env (or edit defaults below):
@@ -48,6 +49,7 @@ case "$cmd" in
   mochi-angry|mochi_angry) anim=mochi_angry ;;
   mochi-love|mochi_love)   anim=mochi_love ;;
   big-smile|big_smile|upiir-big-smile|upiir_big_smile) anim=upiir_big_smile ;;
+  status-alert|status_alert|status-reminder|status_reminder) anim=status_alert ;;
   *)                       anim="$cmd" ;;
 esac
 

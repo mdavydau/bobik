@@ -96,6 +96,14 @@
       "kind": "bitmap",
       "frameCount": 18,
       "fps": 12
+    },
+    {
+      "value": "status_alert",
+      "label": "Status Alert",
+      "asset": "status_alert01",
+      "kind": "bitmap",
+      "frameCount": 24,
+      "fps": 10
     }
   ]
 }

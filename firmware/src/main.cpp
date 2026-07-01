@@ -121,6 +121,8 @@ struct ScheduledFace {
 ScheduledFace scheduledFaces[] = {
   // Noon coffee break, 12:00 Europe/Warsaw.
   { 12,  0, "coffee", "coffee time", 120, 0 },
+  // Daily status report reminder, 14:30 Europe/Warsaw.
+  { 14, 30, "status_alert", "STATUS STATUS STATUS", 300, 0 },
   // Examples to add later, e.g.:
   // {  9,  0, "focus",  "morning focus",  0, 0 },
   // { 18,  0, "sweat",  "wrap it up",   120, 0 },
@@ -201,6 +203,7 @@ void drawMochi_happyAnimation();
 void drawMochi_angryAnimation();
 void drawMochi_loveAnimation();
 void drawUpiir_big_smileAnimation();
+void drawStatus_alertAnimation();
 void drawDebugInfo();
 void drawDevInfo();
 String clipForDisplay(const String& value, int maxLen);
@@ -1352,6 +1355,77 @@ void drawUpiir_big_smileAnimation() {
   if (frame >= UPIIR_BIG_SMILE01_FRAME_COUNT) frame = 0;
 }
 
+void drawStatus_alertAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < 100) return;
+  lastFrameTime = now;
+
+  display.clearBuffer();
+
+  display.setFont(u8g2_font_6x10_tf);
+  if (frame % 8 < 5) {
+    display.drawStr(2, 9, "STATUS STATUS");
+    display.drawStr(18, 62, "STATUS!");
+  } else {
+    display.drawStr(20, 9, "WRITE STATUS");
+    display.drawStr(8, 62, "NOW NOW NOW");
+  }
+
+  int ax = 64, ay = 14, bx = 42, by = 48, cx = 86, cy = 48;
+  switch ((frame / 6) % 4) {
+    case 1: ax = 84; ay = 32; bx = 50; by = 12; cx = 50; cy = 52; break;
+    case 2: ax = 64; ay = 50; bx = 42; by = 16; cx = 86; cy = 16; break;
+    case 3: ax = 44; ay = 32; bx = 78; by = 12; cx = 78; cy = 52; break;
+  }
+  display.drawLine(ax, ay, bx, by);
+  display.drawLine(bx, by, cx, cy);
+  display.drawLine(cx, cy, ax, ay);
+  display.drawLine((ax + 64) / 2, (ay + 32) / 2, (bx + 64) / 2, (by + 32) / 2);
+  display.drawLine((bx + 64) / 2, (by + 32) / 2, (cx + 64) / 2, (cy + 32) / 2);
+  display.drawLine((cx + 64) / 2, (cy + 32) / 2, (ax + 64) / 2, (ay + 32) / 2);
+
+  display.drawBox(62, 22, 5, 17);
+  display.drawBox(62, 42, 5, 4);
+
+  int phase = frame % 8;
+  if (phase == 0 || phase == 4) {
+    display.drawLine(64, 0, 64, 8);
+    display.drawLine(64, 56, 64, 63);
+  } else if (phase == 1 || phase == 5) {
+    display.drawLine(91, 5, 84, 12);
+    display.drawLine(37, 59, 44, 52);
+  } else if (phase == 2 || phase == 6) {
+    display.drawLine(119, 32, 127, 32);
+    display.drawLine(0, 32, 8, 32);
+  } else {
+    display.drawLine(91, 59, 84, 52);
+    display.drawLine(37, 5, 44, 12);
+  }
+
+  if (frame % 6 < 3) {
+    display.drawFrame(0, 23, 10, 19);
+    display.drawFrame(118, 23, 10, 19);
+  } else {
+    display.drawBox(2, 25, 6, 15);
+    display.drawBox(120, 25, 6, 15);
+  }
+  flushDisplay();
+
+  frame++;
+  if (frame >= 24) frame = 0;
+}
+
 void updateDisplay() {
   // Handle startup animation - play once then go to idle
   if (!hasCompletedStartup) {
@@ -1406,6 +1480,8 @@ void updateDisplay() {
     drawMochi_loveAnimation();
   } else if (currentAnimation == "upiir_big_smile") {
     drawUpiir_big_smileAnimation();
+  } else if (currentAnimation == "status_alert") {
+    drawStatus_alertAnimation();
   } else if (currentAnimation == "pomodoro") {
     drawPomodoroAnimation();
   } else if (currentAnimation == "complete") {

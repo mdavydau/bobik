@@ -135,7 +135,7 @@ MQTT_HOST=YOUR_SERVER MQTT_USER=tabbie MQTT_PASS=secret \
   tools/tabbie-pub.sh debug-on
 ```
 
-Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup sweat coffee mochi_happy mochi_angry mochi_love upiir_big_smile`.
+Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup sweat coffee mochi_happy mochi_angry mochi_love upiir_big_smile status_alert`.
 DevMode is the internal debug screen. It is a live feature flag toggled over
 MQTT, so switching it on/off does not require reflashing. It stays on until
 switched off and rotates through WiFi/MQTT, current face/task/schedule, and
@@ -148,6 +148,7 @@ tools/tabbie-pub.sh mochi-happy
 tools/tabbie-pub.sh mochi-angry
 tools/tabbie-pub.sh mochi-love
 tools/tabbie-pub.sh big-smile
+tools/tabbie-pub.sh status-alert
 ```
 screen. Use `/api/debug` for the shorter 8-second status screen. While DevMode
 is on, the firmware also writes a compact snapshot to the USB serial log every
