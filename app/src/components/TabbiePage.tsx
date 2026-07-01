@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useTabbieSync } from '@/contexts/TabbieContext';
+import FacePicker from './FacePicker';
 
 // Servo position constants (matching firmware)
 const SERVO_LEFT = 15;
@@ -292,7 +293,7 @@ const TabbiePage: React.FC<TabbiePageProps> = ({ theme = 'clean' }) => {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Not Connected */}
         {!isConnected && (
           <Card className={theme === 'retro' ? "border-2 border-black rounded-2xl shadow-[4px_4px_0_0_rgba(0,0,0,0.3)]" : ""}>
@@ -409,6 +410,13 @@ const TabbiePage: React.FC<TabbiePageProps> = ({ theme = 'clean' }) => {
             </CardContent>
           </Card>
         )}
+
+        <FacePicker
+          currentAnimation={tabbieStatus?.animation}
+          isConnected={isConnected}
+          onSelect={sendAnimation}
+          theme={theme}
+        />
 
         {/* Servo Simulation */}
         <Card className={`mt-6 ${theme === 'retro' ? "border-2 border-black rounded-2xl shadow-[4px_4px_0_0_rgba(0,0,0,0.3)]" : ""}`}>
