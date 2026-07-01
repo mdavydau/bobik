@@ -11,3 +11,9 @@ sounds/
 
 node_modules/
 app/node_modules/
+
+# Local runtime state
+data/
+
+# macOS metadata
+.DS_Store
