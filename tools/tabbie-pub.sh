@@ -12,6 +12,7 @@
 #   tabbie-pub dev-off
 #   tabbie-pub debug-on
 #   tabbie-pub debug-off
+#   tabbie-pub mochi-happy
 #   tabbie-pub focus "writing the report"
 #
 # Config via env (or edit defaults below):
@@ -43,6 +44,10 @@ case "$cmd" in
   hello|startup|boot)      anim=startup ;;
   hot|sweat|tired)         anim=sweat ;;
   coffee|brew)             anim=coffee ;;
+  mochi-happy|mochi_happy) anim=mochi_happy ;;
+  mochi-angry|mochi_angry) anim=mochi_angry ;;
+  mochi-love|mochi_love)   anim=mochi_love ;;
+  big-smile|big_smile|upiir-big-smile|upiir_big_smile) anim=upiir_big_smile ;;
   *)                       anim="$cmd" ;;
 esac
 

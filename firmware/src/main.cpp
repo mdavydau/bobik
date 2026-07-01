@@ -50,6 +50,10 @@ bool focusHalfwayDone = false;
 #include "angry01.h"          // Animated angry face
 #include "sweat01.h"          // Animated hot/sweating face
 #include "coffee01.h"          // face: coffee
+#include "mochi_happy01.h"          // face: mochi_happy
+#include "mochi_angry01.h"          // face: mochi_angry
+#include "mochi_love01.h"          // face: mochi_love
+#include "upiir_big_smile01.h"          // face: upiir_big_smile
 
 // Optional MQTT bridge — enabled only when firmware/src/mqtt_config.h exists.
 // Lets a remote server / voice assistant control Tabbie by publishing commands
@@ -193,6 +197,10 @@ void drawSweatAnimation();
 void drawPomodoroAnimation();
 void drawTaskCompleteAnimation();
 void drawCoffeeAnimation();
+void drawMochi_happyAnimation();
+void drawMochi_angryAnimation();
+void drawMochi_loveAnimation();
+void drawUpiir_big_smileAnimation();
 void drawDebugInfo();
 void drawDevInfo();
 String clipForDisplay(const String& value, int maxLen);
@@ -1240,6 +1248,110 @@ void checkScheduledFaces() {
   }
 }
 
+void drawMochi_happyAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < MOCHI_HAPPY01_FRAME_DELAY) return;
+  lastFrameTime = now;
+
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&mochi_happy01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  flushDisplay();
+
+  frame++;
+  if (frame >= MOCHI_HAPPY01_FRAME_COUNT) frame = 0;
+}
+
+void drawMochi_angryAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < MOCHI_ANGRY01_FRAME_DELAY) return;
+  lastFrameTime = now;
+
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&mochi_angry01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  flushDisplay();
+
+  frame++;
+  if (frame >= MOCHI_ANGRY01_FRAME_COUNT) frame = 0;
+}
+
+void drawMochi_loveAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < MOCHI_LOVE01_FRAME_DELAY) return;
+  lastFrameTime = now;
+
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&mochi_love01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  flushDisplay();
+
+  frame++;
+  if (frame >= MOCHI_LOVE01_FRAME_COUNT) frame = 0;
+}
+
+void drawUpiir_big_smileAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  // Reset on animation start
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < UPIIR_BIG_SMILE01_FRAME_DELAY) return;
+  lastFrameTime = now;
+
+  // Draw frame
+  display.clearBuffer();
+  const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&upiir_big_smile01_frames[frame]);
+  display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+  flushDisplay();
+
+  frame++;
+  if (frame >= UPIIR_BIG_SMILE01_FRAME_COUNT) frame = 0;
+}
+
 void updateDisplay() {
   // Handle startup animation - play once then go to idle
   if (!hasCompletedStartup) {
@@ -1286,6 +1398,14 @@ void updateDisplay() {
     drawSweatAnimation();
   } else if (currentAnimation == "coffee") {
     drawCoffeeAnimation();
+  } else if (currentAnimation == "mochi_happy") {
+    drawMochi_happyAnimation();
+  } else if (currentAnimation == "mochi_angry") {
+    drawMochi_angryAnimation();
+  } else if (currentAnimation == "mochi_love") {
+    drawMochi_loveAnimation();
+  } else if (currentAnimation == "upiir_big_smile") {
+    drawUpiir_big_smileAnimation();
   } else if (currentAnimation == "pomodoro") {
     drawPomodoroAnimation();
   } else if (currentAnimation == "complete") {

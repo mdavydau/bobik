@@ -15,6 +15,10 @@
 #   pomodoro|timer       -> pomodoro
 #   idle|neutral|normal  -> idle
 #   hello|startup|boot   -> startup
+#   mochi-happy          -> mochi_happy
+#   mochi-angry          -> mochi_angry
+#   mochi-love           -> mochi_love
+#   big-smile            -> upiir_big_smile
 # Any other word is passed through as a raw animation name.
 #
 # Host: set TABBIE_HOST (default tabbie.local). Examples:
@@ -32,7 +36,7 @@ task="${*:-}"
 case "$cmd" in
   ""|-h|--help|help) usage; exit 0 ;;
   list)
-    echo "angry happy done focus break pomodoro idle hello sweat coffee  (or any raw animation name)"; exit 0 ;;
+    echo "angry happy done focus break pomodoro idle hello sweat coffee mochi-happy mochi-angry mochi-love big-smile  (or any raw animation name)"; exit 0 ;;
   status)
     if ! curl -fsS -m 6 "$BASE/api/status"; then
       echo "ERROR: cannot reach Tabbie at $BASE" >&2; exit 1
@@ -52,6 +56,10 @@ case "$cmd" in
   hello|startup|boot)   anim=startup ;;
   hot|sweat|tired)      anim=sweat ;;
   coffee|brew|break-coffee) anim=coffee ;;
+  mochi-happy|mochi_happy) anim=mochi_happy ;;
+  mochi-angry|mochi_angry) anim=mochi_angry ;;
+  mochi-love|mochi_love)   anim=mochi_love ;;
+  big-smile|big_smile|upiir-big-smile|upiir_big_smile) anim=upiir_big_smile ;;
   *)                    anim="$cmd" ;;   # raw passthrough
 esac
 

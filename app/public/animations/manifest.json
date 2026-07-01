@@ -42,6 +42,30 @@
       "fps": 8
     },
     {
+      "value": "mochi_angry",
+      "label": "Mochi Angry",
+      "asset": "mochi_angry01",
+      "kind": "bitmap",
+      "frameCount": 18,
+      "fps": 12
+    },
+    {
+      "value": "mochi_happy",
+      "label": "Mochi Happy",
+      "asset": "mochi_happy01",
+      "kind": "bitmap",
+      "frameCount": 14,
+      "fps": 12
+    },
+    {
+      "value": "mochi_love",
+      "label": "Mochi Love",
+      "asset": "mochi_love01",
+      "kind": "bitmap",
+      "frameCount": 18,
+      "fps": 12
+    },
+    {
       "value": "break",
       "label": "Break / Relax",
       "asset": "relax01",
@@ -64,6 +88,14 @@
       "kind": "bitmap",
       "frameCount": 14,
       "fps": 10
+    },
+    {
+      "value": "upiir_big_smile",
+      "label": "Upiir Big Smile",
+      "asset": "upiir_big_smile01",
+      "kind": "bitmap",
+      "frameCount": 18,
+      "fps": 12
     }
   ]
 }

@@ -17,5 +17,9 @@ app/node_modules/
 # Local runtime state
 data/
 
+# Local third-party/reference animation experiments
+mochi-reference/
+mochi-adapted/
+
 # macOS metadata
 .DS_Store

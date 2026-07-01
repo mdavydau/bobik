@@ -33,7 +33,11 @@ DevMode diagnostics screen. The helper supports `tools/tabbie-pub.sh dev-on`,
 ### Expressions (`animation` values)
 
 `idle` · `focus` · `break` · `paused` (animated **angry**) · `love` ·
-`pomodoro` · `complete` · `startup`
+`pomodoro` · `complete` · `startup` · `sweat` · `coffee` ·
+`mochi_happy` · `mochi_angry` · `mochi_love` · `upiir_big_smile`
+
+Friendly helper aliases: `mochi-happy`, `mochi-angry`, `mochi-love`,
+`big-smile`.
 
 ### Examples
 
