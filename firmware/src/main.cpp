@@ -139,7 +139,7 @@ String scheduledActiveAnim = "";
 unsigned long scheduledActiveStart = 0;
 unsigned long scheduledRevertAt = 0;
 
-// Anger escalation state — set to true via MQTT "stop-escalation" command
+// Anger escalation state — set to true via "stop-escalation" command
 bool escalationCancelled = false;
 
 // WiFi connection state machine
@@ -1037,11 +1037,6 @@ void logDevSnapshot() {
 #ifdef TABBIE_MQTT
 // Apply an animation command from the MQTT bridge. Mirrors handleAnimation().
 void applyAnimation(const String& anim, const String& task, unsigned long durSec) {
-  // Check for escalation stop command
-  if (task == "stop-escalation") {
-    escalationCancelled = true;
-    Serial.println("⏰ Escalation cancelled by user");
-  }
   triggerAnimation(anim, task, durSec);
 }
 
@@ -1177,6 +1172,13 @@ void drawCoffeeAnimation() {
 // scheduler). Single source of truth; works whether or not MQTT is compiled in.
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec) {
   if (anim.length() == 0) return;
+  String normalizedTask = task;
+  normalizedTask.trim();
+  normalizedTask.toLowerCase();
+  if (normalizedTask == "stop-escalation") {
+    escalationCancelled = true;
+    Serial.println("⏰ Escalation cancelled by user");
+  }
   currentAnimation = anim;
   currentTask = task;
   animationStartTime = millis();
@@ -1256,38 +1258,46 @@ void checkScheduledFaces() {
 
   for (int i = 0; i < scheduledFaceCount; i++) {
     ScheduledFace &s = scheduledFaces[i];
+    if (lt.tm_hour != s.hour || lt.tm_min != s.minute) continue;
+    if (s.lastFiredYmd == ymd) continue;
+
     // Skip escalation entries (16:xx) when user pressed stop
-    if (s.hour == 16 && escalationCancelled) continue;
-    // Midnight (00:10) entry — resets the cancellation flag for a new day
+    if (s.hour == 16 && escalationCancelled) {
+      s.lastFiredYmd = ymd;
+      Serial.printf("⏰ Scheduled escalation '%s' skipped at %02d:%02d\n",
+                    s.animation, lt.tm_hour, lt.tm_min);
+      continue;
+    }
+
+    // Midnight (00:10) entry — resets the cancellation flag for a new day.
     if (s.hour == 0 && s.minute == 10 && escalationCancelled) {
       escalationCancelled = false;
       Serial.println("⏰ Escalation flag reset for new day");
     }
-    if (lt.tm_hour == s.hour && lt.tm_min == s.minute && s.lastFiredYmd != ymd) {
-      s.lastFiredYmd = ymd;
-      triggerAnimation(s.animation, s.task, 0);
-      scheduledActiveAnim = s.animation;
-      scheduledActiveStart = animationStartTime;
-      scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
-      Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
-                    s.animation, lt.tm_hour, lt.tm_min);
-      // Notify via MQTT so the server can forward to Telegram
-      #ifdef TABBIE_MQTT
-      if (mqttClient.connected()) {
-        String note = "{\"anim\":\"";
-        note += s.animation;
-        note += "\",\"task\":\"";
-        note += s.task;
-        note += "\",\"time\":\"";
-        char buf[6];
-        snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
-        note += buf;
-        note += "\"}";
-        mqttClient.publish("tabbie/notify", note.c_str());
-        Serial.print("📢 MQTT notify: "); Serial.println(note);
-      }
-      #endif
+
+    s.lastFiredYmd = ymd;
+    triggerAnimation(s.animation, s.task, 0);
+    scheduledActiveAnim = s.animation;
+    scheduledActiveStart = animationStartTime;
+    scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
+    Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
+                  s.animation, lt.tm_hour, lt.tm_min);
+    // Notify via MQTT so the server can forward to Telegram
+    #ifdef TABBIE_MQTT
+    if (mqttClient.connected()) {
+      String note = "{\"anim\":\"";
+      note += s.animation;
+      note += "\",\"task\":\"";
+      note += s.task;
+      note += "\",\"time\":\"";
+      char buf[6];
+      snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+      note += buf;
+      note += "\"}";
+      mqttClient.publish("tabbie/notify", note.c_str());
+      Serial.print("📢 MQTT notify: "); Serial.println(note);
     }
+    #endif
   }
 }
 

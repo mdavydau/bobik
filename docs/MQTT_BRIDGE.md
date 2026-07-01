@@ -120,6 +120,10 @@ mosquitto_pub -h YOUR_SERVER -u tabbie -P secret -t tabbie/cmd \
 mosquitto_pub -h YOUR_SERVER -u tabbie -P secret -t tabbie/cmd -m love
 mosquitto_pub -h YOUR_SERVER -u tabbie -P secret -t tabbie/cmd -m "dev on"
 mosquitto_pub -h YOUR_SERVER -u tabbie -P secret -t tabbie/cmd -m "dev off"
+
+# stop today's 16:00-17:00 escalation
+mosquitto_pub -h YOUR_SERVER -u tabbie -P secret -t tabbie/cmd \
+  -m '{"animation":"idle","task":"stop-escalation"}'
 ```
 
 Or use the helper `tools/tabbie-pub.sh` (friendly words → JSON):
@@ -133,6 +137,8 @@ MQTT_HOST=YOUR_SERVER MQTT_USER=tabbie MQTT_PASS=secret \
   tools/tabbie-pub.sh dev-off
 MQTT_HOST=YOUR_SERVER MQTT_USER=tabbie MQTT_PASS=secret \
   tools/tabbie-pub.sh debug-on
+MQTT_HOST=YOUR_SERVER MQTT_USER=tabbie MQTT_PASS=secret \
+  tools/tabbie-pub.sh stop
 ```
 
 Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup sweat coffee mochi_happy mochi_angry mochi_love upiir_big_smile status_alert`.
@@ -195,6 +201,7 @@ Intent mapping:
 "tabbie status reminder"  -> tools/tabbie-pub.sh status-alert
 "tabbie dev mode on"      -> tools/tabbie-pub.sh dev-on
 "tabbie dev mode off"     -> tools/tabbie-pub.sh dev-off
+"bobik stop"              -> tools/tabbie-pub.sh stop
 ```
 
 Watch the board come/go online:

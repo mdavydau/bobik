@@ -3,6 +3,47 @@
 This is the short path for rebuilding and flashing the ESP32 firmware from a
 Mac.
 
+## Fast path for Bobik
+
+```bash
+cd ~/bobik
+git pull
+test -f firmware/src/mqtt_config.h || cp firmware/src/mqtt_config.example.h firmware/src/mqtt_config.h
+$EDITOR firmware/src/mqtt_config.h
+cd firmware
+pio run --target upload
+```
+
+In `firmware/src/mqtt_config.h`, keep the private broker credentials local to
+your Mac. The current Bobik broker uses plain MQTT on port `1883`; do not commit
+`mqtt_config.h`.
+
+After boot, the ESP32 runs these Europe/Warsaw on-device schedules:
+
+| Time | Face | Task |
+| --- | --- | --- |
+| 12:00 | `coffee` | coffee break |
+| 14:30 | `status_alert` | status reminder |
+| 16:00 | `sweat` | first end-of-day warning |
+| 16:20 | `paused` | angrier warning |
+| 16:40 | `paused` | final warning |
+| 17:00 | `idle` | automatic revert from the 16:40 warning |
+| 00:10 | `idle` | reset the stop-escalation flag for the next day |
+
+Stop the 16:00-17:00 escalation for the current day:
+
+```bash
+mosquitto_pub -h <broker-host> -p 1883 -u tabbie -P '<broker-password>' \
+  -t tabbie/cmd -m '{"animation":"idle","task":"stop-escalation"}'
+```
+
+Or from the repo helper:
+
+```bash
+source .mqtt.env
+tools/tabbie-pub.sh stop
+```
+
 ## 1. Install tools
 
 ```bash

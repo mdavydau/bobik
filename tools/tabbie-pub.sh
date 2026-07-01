@@ -14,6 +14,7 @@
 #   tabbie-pub debug-off
 #   tabbie-pub mochi-happy
 #   tabbie-pub status-alert
+#   tabbie-pub stop
 #   tabbie-pub focus "writing the report"
 #
 # Config via env (or edit defaults below):
@@ -35,6 +36,7 @@ case "$cmd" in
   dev|dev-toggle|debug|debug-toggle) payload='{"dev":"toggle"}' ;;
   dev-on|dev-enable|devmode-on|debug-on|debug-enable)   payload='{"dev":true}' ;;
   dev-off|dev-disable|devmode-off|debug-off|debug-disable) payload='{"dev":false}' ;;
+  stop|stop-escalation|cancel-escalation|bobik-stop) payload='{"animation":"idle","task":"stop-escalation"}' ;;
   angry|mad)               anim=paused ;;
   happy|love)              anim=love ;;
   done|complete|celebrate) anim=complete ;;
