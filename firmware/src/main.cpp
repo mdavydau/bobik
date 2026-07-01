@@ -191,6 +191,8 @@ void drawPomodoroAnimation();
 void drawTaskCompleteAnimation();
 void drawCoffeeAnimation();
 void drawDebugInfo();
+void drawStatusOverlay();
+void flushDisplay(bool showOverlay = true);
 void handleDebug();
 void handleReset();
 void handleServoTest();
@@ -254,7 +256,7 @@ void setupDisplay() {
   display.clearBuffer();
   // Don't show "Starting..." text - just clear the display
   // Startup animation will begin immediately in loop()
-  display.sendBuffer();
+  flushDisplay(false);
   
   Serial.println("✅ OLED Display initialized (U8g2 SH1106)");
 }
@@ -1035,7 +1037,7 @@ void drawCoffeeAnimation() {
   display.clearBuffer();
   const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&coffee01_frames[frame]);
   display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-  display.sendBuffer();
+  flushDisplay();
 
   frame++;
   if (frame >= COFFEE01_FRAME_COUNT) frame = 0;
@@ -1177,6 +1179,38 @@ void updateDisplay() {
   }
 }
 
+void drawStatusOverlay() {
+  if (!hasCompletedStartup || isDebugMode || isInSetupMode) return;
+
+  bool wifiOk = (WiFi.status() == WL_CONNECTED && wifiStatus == "connected");
+#ifdef TABBIE_MQTT
+  bool mqttOk = mqttClient.connected();
+#else
+  bool mqttOk = false;
+#endif
+
+  display.setDrawColor(0);
+  display.drawBox(96, 0, 32, 9);
+  display.setDrawColor(1);
+  display.setFont(u8g2_font_5x7_tf);
+
+  display.drawStr(102, 7, "W");
+  display.drawStr(116, 7, "M");
+
+  if (wifiOk) display.drawBox(98, 2, 3, 5);
+  else display.drawFrame(98, 2, 3, 5);
+
+  if (mqttOk) display.drawBox(112, 2, 3, 5);
+  else display.drawFrame(112, 2, 3, 5);
+}
+
+void flushDisplay(bool showOverlay) {
+  if (showOverlay) {
+    drawStatusOverlay();
+  }
+  display.sendBuffer();
+}
+
 void checkDebugButton() {
   // Don't check button during startup (first 5 seconds) to avoid false triggers
   if (millis() < 5000) return;
@@ -1225,34 +1259,35 @@ void drawDebugInfo() {
     String attempts = "Attempt " + String(wifiAttemptCount) + "/" + String(MAX_WIFI_ATTEMPTS);
     display.drawStr(0, 58, attempts.c_str());
   } else if (wifiStatus == "connected") {
-    // Connected - show IP prominently
-    display.drawStr(0, 10, "=== CONNECTED ===");
-    
-    // IP Address - the most important info!
-    display.setFont(u8g2_font_7x13B_tf); // Slightly bigger font for IP
-    display.drawStr(0, 26, WiFi.localIP().toString().c_str());
-    display.setFont(u8g2_font_6x10_tf);
-    
-    // WiFi name
+    display.drawStr(0, 9, "=== DEVICE STATUS ===");
+
+    String ipDisplay = WiFi.localIP().toString();
+    display.drawStr(0, 21, ipDisplay.c_str());
+
     String ssidDisplay = WiFi.SSID();
     if (ssidDisplay.length() > 18) {
       ssidDisplay = ssidDisplay.substring(0, 15) + "...";
     }
-    display.drawStr(0, 40, ssidDisplay.c_str());
-    
-    // Signal strength with visual indicator
+    display.drawStr(0, 33, ssidDisplay.c_str());
+
     int rssi = WiFi.RSSI();
-    String signal;
-    if (rssi > -50) signal = "Signal: Great";
-    else if (rssi > -60) signal = "Signal: Good";
-    else if (rssi > -70) signal = "Signal: Fair";
-    else signal = "Signal: Weak";
-    display.drawStr(0, 52, signal.c_str());
-    
-    // Countdown
+    String signal = "WIFI OK " + String(rssi) + "dBm";
+    if (signal.length() > 21) signal = signal.substring(0, 21);
+    display.drawStr(0, 45, signal.c_str());
+
+#ifdef TABBIE_MQTT
+    String mqtt = mqttClient.connected()
+      ? "MQTT OK /api/status"
+      : "MQTT FAIL state " + String(mqttClient.state());
+#else
+    String mqtt = "MQTT OFF /api/status";
+#endif
+    if (mqtt.length() > 19) mqtt = mqtt.substring(0, 19);
+    display.drawStr(0, 57, mqtt.c_str());
+
     int secondsLeft = (DEBUG_MODE_DURATION - (millis() - debugModeStartTime)) / 1000;
-    String countdown = "(" + String(secondsLeft) + "s)";
-    display.drawStr(100, 52, countdown.c_str());
+    String countdown = String(secondsLeft) + "s";
+    display.drawStr(110, 57, countdown.c_str());
   } else {
     // Failed/disconnected
     display.drawStr(0, 10, "=== WIFI ERROR ===");
@@ -1266,7 +1301,7 @@ void drawDebugInfo() {
     display.drawStr(0, 56, "Check WiFi settings");
   }
   
-  display.sendBuffer();
+  flushDisplay(false);
 }
 
 void drawSetupMode() {
@@ -1301,7 +1336,7 @@ void drawSetupMode() {
     display.drawPixel(127, 2);
   }
   
-  display.sendBuffer();
+  flushDisplay(false);
 }
 
 void drawConnecting() {
@@ -1326,7 +1361,7 @@ void drawConnecting() {
   }
   display.drawStr(0, 40, dots.c_str());
   
-  display.sendBuffer();
+  flushDisplay(false);
 }
 
 void drawConnected() {
@@ -1337,7 +1372,7 @@ void drawConnected() {
   display.drawStr(0, 24, WiFi.SSID().c_str());
   display.drawStr(0, 38, WiFi.localIP().toString().c_str());
   
-  display.sendBuffer();
+  flushDisplay(false);
 }
 
 void drawError() {
@@ -1367,7 +1402,7 @@ void drawError() {
     display.drawDisc(5, 5, 2);
   }
   
-  display.sendBuffer();
+  flushDisplay(false);
 }
 
 void drawIdleAnimation() {
@@ -1399,7 +1434,7 @@ void drawIdleAnimation() {
   display.clearBuffer();
   const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&idle01_frames[frame]);
   display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-  display.sendBuffer();
+  flushDisplay();
   
   // Servo keyframes (when active)
   // Idle keyframes: frame 25=left, 50=center, 75=right, 90=center
@@ -1534,7 +1569,7 @@ void drawFocusAnimation() {
     display.drawBitmap(0, 0, 128 / 8, 64, frameData);
   }
   
-  display.sendBuffer();
+  flushDisplay();
 }
 
 void drawRelaxAnimation() {
@@ -1558,7 +1593,7 @@ void drawRelaxAnimation() {
   display.clearBuffer();
   const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&relax01_frames[frame]);
   display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-  display.sendBuffer();
+  flushDisplay();
   
   // Servo keyframes: 40=left, 50=right, 60=center (every loop)
   if (frame == 40) moveServoTo(SERVO_LEFT);
@@ -1589,7 +1624,7 @@ void drawSweatAnimation() {
   display.clearBuffer();
   const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&sweat01_frames[frame]);
   display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-  display.sendBuffer();
+  flushDisplay();
 
   frame++;
   if (frame >= SWEAT01_FRAME_COUNT) frame = 0;
@@ -1616,7 +1651,7 @@ void drawLoveAnimation() {
   display.clearBuffer();
   const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&love01_frames[frame]);
   display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-  display.sendBuffer();
+  flushDisplay();
   
   // Servo keyframes: 5=left, 15=right, 25=left, 35=right, 45=center
   if (frame == 5) moveServoTo(SERVO_LEFT);
@@ -1649,7 +1684,7 @@ void drawStartupAnimation() {
   display.clearBuffer();
   const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&startup01_frames[frame]);
   display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-  display.sendBuffer();
+  flushDisplay();
   
   // Servo keyframes: 15=left, 30=right, 45=center
   if (frame == 15) moveServoTo(SERVO_LEFT);
@@ -1671,7 +1706,7 @@ void drawAngryImage() {
   
   display.clearBuffer();
   display.drawBitmap(0, 0, 128 / 8, 64, angry_bitmap);
-  display.sendBuffer();
+  flushDisplay();
   
   // Angry shake every 30 seconds
   unsigned long now = millis();
@@ -1708,7 +1743,7 @@ void drawAngryAnimation() {
     display.clearBuffer();
     const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&angry01_frames[frame]);
     display.drawBitmap(0, 0, 128 / 8, 64, frameData);
-    display.sendBuffer();
+    flushDisplay();
     if (++frame >= ANGRY01_FRAME_COUNT) frame = 0;
   }
 
@@ -1762,7 +1797,7 @@ void drawPomodoroAnimation() {
   display.drawFrame(0, 55, 128, 8);
   display.drawBox(1, 56, progress, 6);
   
-  display.sendBuffer();
+  flushDisplay();
 }
 
 void drawTaskCompleteAnimation() {
@@ -1795,7 +1830,7 @@ void drawTaskCompleteAnimation() {
     display.drawPixel(20, 15);
     display.drawPixel(100, 20);
   }
-  display.sendBuffer();
+  flushDisplay();
   
   // Simple wiggle: left-right-left-right-center
   unsigned long now = millis();

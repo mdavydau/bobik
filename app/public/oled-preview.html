@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bobik OLED Preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #111316;
+        --panel: #1b2026;
+        --line: #303844;
+        --text: #e8edf2;
+        --muted: #9aa8b5;
+        --pixel: #ffd36a;
+        --pixel-dim: #5d4925;
+        --accent: #4fb7ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 24px;
+        width: min(1120px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 28px 0;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        font-weight: 650;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .stage {
+        display: grid;
+        align-content: start;
+        gap: 18px;
+      }
+
+      .screen-shell {
+        width: min(100%, 760px);
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #090b0d;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        max-width: 704px;
+        aspect-ratio: 2 / 1;
+        image-rendering: pixelated;
+        border: 1px solid #2a2f35;
+        border-radius: 4px;
+        background: #050607;
+      }
+
+      aside {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      select,
+      input[type="text"] {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #11161c;
+        color: var(--text);
+        padding: 7px 9px;
+        font: inherit;
+      }
+
+      .checks {
+        display: grid;
+        gap: 10px;
+        padding: 6px 0;
+      }
+
+      .check {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .check input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent);
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      button {
+        min-height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #131921;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button.primary {
+        border-color: #256d9f;
+        background: #12324a;
+      }
+
+      .readout {
+        display: grid;
+        grid-template-columns: 64px 1fr;
+        gap: 6px 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .readout span:nth-child(odd) {
+        color: var(--muted);
+      }
+
+      .readout span:nth-child(even) {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          width: min(100%, 520px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="stage">
+        <div>
+          <h1>Bobik OLED Preview</h1>
+          <p>Preview the 128x64 device screen before uploading firmware.</p>
+        </div>
+        <div class="screen-shell">
+          <canvas id="screen" width="128" height="64"></canvas>
+        </div>
+      </section>
+
+      <aside>
+        <label>
+          Screen
+          <select id="mode">
+            <option value="idle">Idle animation</option>
+            <option value="love">Love animation</option>
+            <option value="focus">Focus</option>
+            <option value="pomodoro">Pomodoro</option>
+            <option value="complete">Complete</option>
+            <option value="debug">Debug status</option>
+          </select>
+        </label>
+
+        <label>
+          Task
+          <input id="task" type="text" value="write code" maxlength="32" />
+        </label>
+
+        <label>
+          Device URL
+          <input id="deviceUrl" type="text" value="http://tabbie.local" />
+        </label>
+
+        <div class="checks">
+          <label class="check">Live device status <input id="live" type="checkbox" /></label>
+          <label class="check">WiFi connected <input id="wifi" type="checkbox" checked /></label>
+          <label class="check">MQTT connected <input id="mqtt" type="checkbox" checked /></label>
+          <label class="check">Show overlay <input id="overlay" type="checkbox" checked /></label>
+        </div>
+
+        <div class="actions">
+          <button id="refresh" class="primary">Refresh</button>
+          <button id="download">PNG</button>
+        </div>
+
+        <div class="readout" aria-live="polite">
+          <span>IP</span><span id="ip">192.168.233.229</span>
+          <span>SSID</span><span id="ssid">SPEED-NET</span>
+          <span>RSSI</span><span id="rssi">-62 dBm</span>
+          <span>MQTT</span><span id="mqttState">ok</span>
+          <span>Source</span><span id="source">manual</span>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("screen");
+      const ctx = canvas.getContext("2d");
+      const mode = document.getElementById("mode");
+      const task = document.getElementById("task");
+      const deviceUrl = document.getElementById("deviceUrl");
+      const live = document.getElementById("live");
+      const wifi = document.getElementById("wifi");
+      const mqtt = document.getElementById("mqtt");
+      const overlay = document.getElementById("overlay");
+      const refresh = document.getElementById("refresh");
+      const download = document.getElementById("download");
+      const ip = document.getElementById("ip");
+      const ssid = document.getElementById("ssid");
+      const rssi = document.getElementById("rssi");
+      const mqttState = document.getElementById("mqttState");
+      const source = document.getElementById("source");
+
+      const pixel = getComputedStyle(document.documentElement).getPropertyValue("--pixel").trim();
+      const state = {
+        frame: 0,
+        animations: {},
+        animationPromises: {},
+        lastLivePoll: 0,
+      };
+
+      function clear() {
+        ctx.fillStyle = "#050607";
+        ctx.fillRect(0, 0, 128, 64);
+      }
+
+      function px(x, y, w = 1, h = 1, color = pixel) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+      }
+
+      function text(value, x, y, size = 8, color = pixel) {
+        ctx.fillStyle = color;
+        ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+        ctx.textBaseline = "top";
+        ctx.fillText(value, x, y);
+      }
+
+      function trim(value, len) {
+        const s = String(value || "");
+        return s.length > len ? `${s.slice(0, Math.max(0, len - 3))}...` : s;
+      }
+
+      function drawBitmapFrame(frame) {
+        if (!frame) return false;
+        const image = ctx.createImageData(128, 64);
+        for (let y = 0; y < 64; y += 1) {
+          for (let x = 0; x < 128; x += 1) {
+            const b = frame[y * 16 + (x >> 3)] || 0;
+            const on = (b >> (x & 7)) & 1;
+            const i = (y * 128 + x) * 4;
+            image.data[i] = on ? 255 : 5;
+            image.data[i + 1] = on ? 211 : 6;
+            image.data[i + 2] = on ? 106 : 7;
+            image.data[i + 3] = 255;
+          }
+        }
+        ctx.putImageData(image, 0, 0);
+        return true;
+      }
+
+      function drawFace() {
+        text("(>.<)", 45, 10, 13);
+        text(trim(task.value, 21), 0, 32);
+        text("FOCUS!", 31, 46);
+        const progress = (state.frame * 2) % 128;
+        ctx.strokeStyle = pixel;
+        ctx.strokeRect(0.5, 55.5, 127, 7);
+        px(1, 56, Math.max(1, progress), 6);
+      }
+
+      function drawComplete() {
+        text("(^.^)", 45, 10, 13);
+        text("Great job!", 21, 31);
+        text(trim(task.value, 21), 0, 47);
+        if (state.frame % 20 < 10) {
+          px(20, 14);
+          px(100, 19);
+        }
+      }
+
+      function drawDebug() {
+        text("=== DEVICE STATUS ===", 0, 1);
+        text(ip.textContent, 0, 13);
+        text(trim(ssid.textContent, 18), 0, 25);
+        text(`WIFI ${wifi.checked ? "OK" : "FAIL"} ${rssi.textContent}`, 0, 37);
+        text(`MQTT ${mqtt.checked ? "OK" : "FAIL"} /api/status`, 0, 49);
+      }
+
+      function drawOverlay() {
+        if (!overlay.checked || mode.value === "debug") return;
+        ctx.fillStyle = "#050607";
+        ctx.fillRect(96, 0, 32, 9);
+        text("W", 102, 1, 7);
+        text("M", 116, 1, 7);
+        if (wifi.checked) px(98, 2, 3, 5);
+        else {
+          ctx.strokeStyle = pixel;
+          ctx.strokeRect(98.5, 2.5, 2, 4);
+        }
+        if (mqtt.checked) px(112, 2, 3, 5);
+        else {
+          ctx.strokeStyle = pixel;
+          ctx.strokeRect(112.5, 2.5, 2, 4);
+        }
+      }
+
+      async function loadAnimation(name) {
+        if (state.animations[name]) return state.animations[name];
+        if (state.animationPromises[name]) return state.animationPromises[name];
+        state.animationPromises[name] = fetch(`/animations/${name}01.json`)
+          .then((response) => response.json())
+          .then((json) => {
+            state.animations[name] = json.frames;
+            delete state.animationPromises[name];
+            return state.animations[name];
+          });
+        return state.animationPromises[name];
+      }
+
+      async function draw() {
+        clear();
+        if (mode.value === "idle" || mode.value === "love") {
+          const frames = state.animations[mode.value];
+          if (frames) {
+            drawBitmapFrame(frames[state.frame % frames.length]);
+          } else {
+            text("loading animation", 12, 27);
+            loadAnimation(mode.value).then(draw);
+          }
+        } else if (mode.value === "debug") {
+          drawDebug();
+        } else if (mode.value === "complete") {
+          drawComplete();
+        } else {
+          drawFace();
+        }
+        drawOverlay();
+      }
+
+      async function pollLiveStatus() {
+        if (!live.checked) return;
+        const baseUrl = deviceUrl.value.trim().replace(/\/$/, "");
+        if (!baseUrl) {
+          source.textContent = "missing URL";
+          return;
+        }
+        source.textContent = baseUrl;
+        try {
+          const response = await fetch(`${baseUrl}/api/status`, { cache: "no-store" });
+          const status = await response.json();
+          wifi.checked = status.status === "connected";
+          mqtt.checked = Boolean(status.mqttConnected);
+          ip.textContent = status.ip || "n/a";
+          ssid.textContent = status.ssid || "n/a";
+          rssi.textContent = status.rssi ? `${status.rssi} dBm` : "n/a";
+          mqttState.textContent = status.mqttConnected ? "ok" : `state ${status.mqttState ?? "n/a"}`;
+        } catch (error) {
+          source.textContent = "live failed";
+          mqttState.textContent = "unreachable";
+        }
+      }
+
+      function tick(now) {
+        state.frame += 1;
+        if (live.checked && now - state.lastLivePoll > 2500) {
+          state.lastLivePoll = now;
+          pollLiveStatus().then(draw);
+        } else {
+          draw();
+        }
+        window.setTimeout(() => requestAnimationFrame(tick), 90);
+      }
+
+      refresh.addEventListener("click", () => pollLiveStatus().then(draw));
+      download.addEventListener("click", () => {
+        const link = document.createElement("a");
+        link.download = `bobik-oled-${mode.value}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+
+      for (const control of [mode, task, deviceUrl, live, wifi, mqtt, overlay]) {
+        control.addEventListener("input", () => {
+          source.textContent = live.checked ? deviceUrl.value.trim() : "manual";
+          draw();
+        });
+      }
+
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>

@@ -54,6 +54,27 @@ is connecting.
 The first clean build can take several minutes because U8g2 and the animation
 headers compile from scratch. Repeat builds should be much faster.
 
+## Preview the OLED before flashing
+
+The app includes a local 128x64 OLED preview page. Use it to check the screen
+layout and the WiFi/MQTT status overlay before uploading firmware:
+
+```bash
+cd app
+PATH=/opt/homebrew/opt/node@22/bin:$PATH npm run dev -- --host 127.0.0.1
+```
+
+Open:
+
+```text
+http://127.0.0.1:8080/oled-preview.html
+```
+
+The preview can run in manual mode or poll the real device. Leave `Device URL`
+as `http://tabbie.local`, or paste the direct IP address shown on the device
+debug screen, for example `http://192.168.233.229`, if macOS mDNS resolution is
+slow. The `PNG` button saves the current preview frame for screenshots.
+
 ## 4. Configure WiFi
 
 WiFi credentials are saved on the ESP32 in Preferences. A normal firmware upload
