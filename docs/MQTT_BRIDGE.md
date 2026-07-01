@@ -141,7 +141,7 @@ MQTT_HOST=YOUR_SERVER MQTT_USER=tabbie MQTT_PASS=secret \
   tools/tabbie-pub.sh stop
 ```
 
-Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup sweat coffee mochi_happy mochi_angry mochi_love upiir_big_smile status_alert`.
+Animations: `idle focus break paused`(animated angry)` love pomodoro complete startup sweat sleepy coffee mochi_happy mochi_angry mochi_love upiir_big_smile status_alert`.
 DevMode is the internal debug screen. It is a live feature flag toggled over
 MQTT, so switching it on/off does not require reflashing. It stays on until
 switched off and rotates through WiFi/MQTT, current face/task/schedule, and
@@ -158,6 +158,7 @@ tools/tabbie-pub.sh mochi-angry
 tools/tabbie-pub.sh mochi-love
 tools/tabbie-pub.sh big-smile
 tools/tabbie-pub.sh status-alert
+tools/tabbie-pub.sh sleepy
 ```
 
 ---
@@ -199,6 +200,7 @@ Intent mapping:
 "tabbie mochi love"       -> tools/tabbie-pub.sh mochi-love
 "tabbie big smile"        -> tools/tabbie-pub.sh big-smile
 "tabbie status reminder"  -> tools/tabbie-pub.sh status-alert
+"tabbie sleepy"           -> tools/tabbie-pub.sh sleepy
 "tabbie dev mode on"      -> tools/tabbie-pub.sh dev-on
 "tabbie dev mode off"     -> tools/tabbie-pub.sh dev-off
 "bobik stop"              -> tools/tabbie-pub.sh stop

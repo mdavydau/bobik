@@ -128,6 +128,8 @@ ScheduledFace scheduledFaces[] = {
   { 16,  0, "sweat",  "16:00 mozhet pora zakanchivat?", 1200, 0 },
   { 16, 20, "paused", "16:20 ya serezno, hvatit!",     1200, 0 },
   { 16, 40, "paused", "16:40 VYKLYUCHAY COMPUTER!!!",  1200, 0 },
+  // Evening wind-down, stays up until the next scheduled face/command.
+  { 18,  0, "sleepy", "sleepy time",                      0, 0 },
   // Midnight reset — re-enables escalation for next day
   {  0, 10, "idle",   "reset escalation flag",            0, 0 },
 };
@@ -207,6 +209,7 @@ void drawSweatAnimation();
 void drawPomodoroAnimation();
 void drawTaskCompleteAnimation();
 void drawCoffeeAnimation();
+void drawSleepyAnimation();
 void drawMochi_happyAnimation();
 void drawMochi_angryAnimation();
 void drawMochi_loveAnimation();
@@ -661,6 +664,7 @@ void handleRoot() {
   html += "<button class='button' data-face='startup' onclick=\"sendAnimation('startup','Hello')\">Startup<small>startup</small></button>";
   html += "<button class='button' data-face='sweat' onclick=\"sendAnimation('sweat','Hot')\">Sweat<small>sweat</small></button>";
   html += "<button class='button' data-face='coffee' onclick=\"sendAnimation('coffee','Coffee Time')\">Coffee<small>coffee</small></button>";
+  html += "<button class='button' data-face='sleepy' onclick=\"sendAnimation('sleepy','Sleepy Time')\">Sleepy<small>sleepy</small></button>";
   html += "<button class='button' data-face='mochi_happy' onclick=\"sendAnimation('mochi_happy','Mochi Happy')\">Mochi Happy<small>mochi_happy</small></button>";
   html += "<button class='button' data-face='mochi_angry' onclick=\"sendAnimation('mochi_angry','Mochi Angry')\">Mochi Angry<small>mochi_angry</small></button>";
   html += "<button class='button' data-face='mochi_love' onclick=\"sendAnimation('mochi_love','Mochi Love')\">Mochi Love<small>mochi_love</small></button>";
@@ -1168,6 +1172,61 @@ void drawCoffeeAnimation() {
   if (frame >= COFFEE01_FRAME_COUNT) frame = 0;
 }
 
+void drawSleepyAnimation() {
+  static int frame = 0;
+  static unsigned long lastFrameTime = 0;
+  static unsigned long lastStart = 0;
+
+  if (animationStartTime != lastStart) {
+    frame = 0;
+    lastFrameTime = 0;
+    lastStart = animationStartTime;
+    moveServoTo(SERVO_CENTER);
+  }
+
+  unsigned long now = millis();
+  if (now - lastFrameTime < 350) return;
+  lastFrameTime = now;
+
+  int bob = (frame % 12 < 6) ? 0 : 1;
+  int zPhase = frame % 18;
+  int z1Y = 22 - (zPhase / 3);
+  int z2Y = 15 - ((zPhase + 6) / 3);
+  int z3Y = 9 - ((zPhase + 12) / 3);
+
+  display.clearBuffer();
+
+  // Pillow
+  display.drawRFrame(14, 43, 100, 15, 4);
+  display.drawLine(22, 50, 104, 50);
+
+  // Sleepy face
+  display.drawRFrame(27, 15 + bob, 74, 33, 10);
+  display.drawLine(43, 30 + bob, 55, 30 + bob);
+  display.drawLine(73, 30 + bob, 85, 30 + bob);
+  display.drawLine(58, 39 + bob, 64, 42 + bob);
+  display.drawLine(64, 42 + bob, 70, 39 + bob);
+  display.drawPixel(42, 36 + bob);
+  display.drawPixel(86, 36 + bob);
+
+  // Night cap
+  display.drawTriangle(33, 17 + bob, 63, 5 + bob, 70, 17 + bob);
+  display.drawDisc(64, 5 + bob, 2);
+
+  // Floating Zs
+  display.setFont(u8g2_font_6x10_tf);
+  display.drawStr(94, z1Y, "z");
+  display.setFont(u8g2_font_7x13B_tf);
+  display.drawStr(103, z2Y, "Z");
+  display.setFont(u8g2_font_9x15B_tf);
+  display.drawStr(112, z3Y, "Z");
+
+  flushDisplay();
+
+  frame++;
+  if (frame >= 216) frame = 0;
+}
+
 // Set the current animation from any source (API, MQTT, or the on-device
 // scheduler). Single source of truth; works whether or not MQTT is compiled in.
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec) {
@@ -1258,7 +1317,9 @@ void checkScheduledFaces() {
 
   for (int i = 0; i < scheduledFaceCount; i++) {
     ScheduledFace &s = scheduledFaces[i];
-    if (lt.tm_hour != s.hour || lt.tm_min != s.minute) continue;
+    bool scheduledMinute = (lt.tm_hour == s.hour && lt.tm_min == s.minute);
+    bool eveningSleepyCatchup = (strcmp(s.animation, "sleepy") == 0 && lt.tm_hour >= 18);
+    if (!scheduledMinute && !eveningSleepyCatchup) continue;
     if (s.lastFiredYmd == ymd) continue;
 
     // Skip escalation entries (16:xx) when user pressed stop
@@ -1522,6 +1583,8 @@ void updateDisplay() {
     drawSweatAnimation();
   } else if (currentAnimation == "coffee") {
     drawCoffeeAnimation();
+  } else if (currentAnimation == "sleepy") {
+    drawSleepyAnimation();
   } else if (currentAnimation == "mochi_happy") {
     drawMochi_happyAnimation();
   } else if (currentAnimation == "mochi_angry") {

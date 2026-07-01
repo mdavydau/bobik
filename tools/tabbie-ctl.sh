@@ -37,7 +37,7 @@ task="${*:-}"
 case "$cmd" in
   ""|-h|--help|help) usage; exit 0 ;;
   list)
-    echo "angry happy done focus break pomodoro idle hello sweat coffee mochi-happy mochi-angry mochi-love big-smile status-alert  (or any raw animation name)"; exit 0 ;;
+    echo "angry happy done focus break pomodoro idle hello sweat sleepy coffee mochi-happy mochi-angry mochi-love big-smile status-alert  (or any raw animation name)"; exit 0 ;;
   status)
     if ! curl -fsS -m 6 "$BASE/api/status"; then
       echo "ERROR: cannot reach Tabbie at $BASE" >&2; exit 1
@@ -56,6 +56,7 @@ case "$cmd" in
   idle|neutral|normal)  anim=idle ;;
   hello|startup|boot)   anim=startup ;;
   hot|sweat|tired)      anim=sweat ;;
+  sleepy|sleep|night|zzz) anim=sleepy ;;
   coffee|brew|break-coffee) anim=coffee ;;
   mochi-happy|mochi_happy) anim=mochi_happy ;;
   mochi-angry|mochi_angry) anim=mochi_angry ;;

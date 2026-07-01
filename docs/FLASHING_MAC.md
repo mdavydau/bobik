@@ -28,6 +28,7 @@ After boot, the ESP32 runs these Europe/Warsaw on-device schedules:
 | 16:20 | `paused` | angrier warning |
 | 16:40 | `paused` | final warning |
 | 17:00 | `idle` | automatic revert from the 16:40 warning |
+| 18:00 | `sleepy` | evening sleepy face |
 | 00:10 | `idle` | reset the stop-escalation flag for the next day |
 
 Stop the 16:00-17:00 escalation for the current day:

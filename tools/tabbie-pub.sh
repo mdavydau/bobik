@@ -14,6 +14,7 @@
 #   tabbie-pub debug-off
 #   tabbie-pub mochi-happy
 #   tabbie-pub status-alert
+#   tabbie-pub sleepy
 #   tabbie-pub stop
 #   tabbie-pub focus "writing the report"
 #
@@ -46,6 +47,7 @@ case "$cmd" in
   idle|neutral|normal)     anim=idle ;;
   hello|startup|boot)      anim=startup ;;
   hot|sweat|tired)         anim=sweat ;;
+  sleepy|sleep|night|zzz)  anim=sleepy ;;
   coffee|brew)             anim=coffee ;;
   mochi-happy|mochi_happy) anim=mochi_happy ;;
   mochi-angry|mochi_angry) anim=mochi_angry ;;
