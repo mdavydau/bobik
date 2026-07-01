@@ -6,6 +6,8 @@ todo2.txt
 image-to-bitmap
 firmware/.env
 firmware/wifi.env
+.mqtt.env
+.mqtt-creds.txt
 TABBIE_SYNC_IMPLEMENTATION.md
 sounds/
 
