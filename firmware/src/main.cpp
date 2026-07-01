@@ -45,7 +45,8 @@ bool focusHalfwayDone = false;
 #include "relax01.h"
 #include "love01.h"
 #include "startup01.h"
-#include "angry_bitmap.h"  // Keep angry as static image
+#include "angry_bitmap.h"  // Static angry image (fallback)
+#include "angry01.h"          // Animated angry face
 
 // OLED display configuration - Using U8g2 with SH1106 driver
 U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
@@ -122,6 +123,7 @@ void drawRelaxAnimation();
 void drawLoveAnimation();
 void drawStartupAnimation();
 void drawAngryImage();
+void drawAngryAnimation();
 void drawPomodoroAnimation();
 void drawTaskCompleteAnimation();
 void drawDebugInfo();
@@ -891,7 +893,7 @@ void updateDisplay() {
   } else if (currentAnimation == "break") {
     drawRelaxAnimation();
   } else if (currentAnimation == "paused") {
-    drawAngryImage();
+    drawAngryAnimation();
   } else if (currentAnimation == "love") {
     drawLoveAnimation();
   } else if (currentAnimation == "pomodoro") {
@@ -1381,6 +1383,42 @@ void drawAngryImage() {
   }
   
   // Execute shake sequence
+  if (shakeStep > 0 && now - lastShakeStepTime >= 250) {
+    lastShakeStepTime = now;
+    switch (shakeStep) {
+      case 1: moveServoTo(SERVO_LEFT); shakeStep = 2; break;
+      case 2: moveServoTo(SERVO_RIGHT); shakeStep = 3; break;
+      case 3: moveServoTo(SERVO_LEFT); shakeStep = 4; break;
+      case 4: moveServoTo(SERVO_CENTER); shakeStep = 0; break;
+    }
+  }
+}
+
+void drawAngryAnimation() {
+  static int frame = 0;
+  static unsigned long lastAngryFrameTime = 0;
+  static int shakeStep = 0;
+  static unsigned long lastShakeStepTime = 0;
+
+  unsigned long now = millis();
+
+  // Advance + draw the animated angry face
+  if (now - lastAngryFrameTime >= ANGRY01_FRAME_DELAY) {
+    lastAngryFrameTime = now;
+    display.clearBuffer();
+    const uint8_t* frameData = (const uint8_t*)pgm_read_ptr(&angry01_frames[frame]);
+    display.drawBitmap(0, 0, 128 / 8, 64, frameData);
+    display.sendBuffer();
+    if (++frame >= ANGRY01_FRAME_COUNT) frame = 0;
+  }
+
+  // Angry head-shake every 30 seconds (same behavior as the static image)
+  if (now - lastPausedShakeTime >= 30000 && shakeStep == 0) {
+    shakeStep = 1;
+    lastPausedShakeTime = now;
+    lastShakeStepTime = now;
+    Serial.println("😠 Angry shake!");
+  }
   if (shakeStep > 0 && now - lastShakeStepTime >= 250) {
     lastShakeStepTime = now;
     switch (shakeStep) {
