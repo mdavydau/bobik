@@ -119,6 +119,8 @@ struct ScheduledFace {
   int lastFiredYmd;        // internal: YYYYMMDD it last fired (0 = never)
 };
 ScheduledFace scheduledFaces[] = {
+  // Morning wake-up, after the sleepy night window.
+  {  8,  0, "mochi_happy", "good morning", 0, 0 },
   // Noon coffee break, 12:00 Europe/Warsaw.
   { 12,  0, "coffee", "coffee time", 120, 0 },
   // Daily status report reminder, 14:30 Europe/Warsaw.
@@ -130,8 +132,6 @@ ScheduledFace scheduledFaces[] = {
   { 16, 40, "paused", "16:40 VYKLYUCHAY COMPUTER!!!",  1200, 0 },
   // Evening wind-down, stays up until the next scheduled face/command.
   { 18,  0, "sleepy", "sleepy time",                      0, 0 },
-  // Midnight reset — re-enables escalation for next day
-  {  0, 10, "idle",   "reset escalation flag",            0, 0 },
 };
 const int scheduledFaceCount = sizeof(scheduledFaces) / sizeof(scheduledFaces[0]);
 
@@ -143,6 +143,7 @@ unsigned long scheduledRevertAt = 0;
 
 // Anger escalation state — set to true via "stop-escalation" command
 bool escalationCancelled = false;
+int escalationResetLastYmd = 0;
 
 // WiFi connection state machine
 String savedSSID = "";
@@ -189,6 +190,7 @@ void handleAnimation();
 void handleWiFiSettings();
 void handleCORS();
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec);
+void publishFaceNotification(const String& anim, const String& task);
 void clearScheduledFaceOverride();
 void syncTimeIfNeeded();
 void checkScheduledFaces();
@@ -1231,6 +1233,7 @@ void drawSleepyAnimation() {
 // scheduler). Single source of truth; works whether or not MQTT is compiled in.
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec) {
   if (anim.length() == 0) return;
+  bool faceChanged = (currentAnimation != anim);
   String normalizedTask = task;
   normalizedTask.trim();
   normalizedTask.toLowerCase();
@@ -1257,6 +1260,39 @@ void triggerAnimation(const String& anim, const String& task, unsigned long durS
   if (anim == "paused") {
     lastPausedShakeTime = millis();
   }
+  if (faceChanged) {
+    publishFaceNotification(anim, task);
+  }
+}
+
+void publishFaceNotification(const String& anim, const String& task) {
+#ifdef TABBIE_MQTT
+  if (!mqttClient.connected()) return;
+
+  JsonDocument note;
+  note["event"] = "face-change";
+  note["anim"] = anim;
+  note["animation"] = anim;
+  note["task"] = task;
+  note["uptime"] = millis();
+
+  if (timeSynced) {
+    time_t t = time(nullptr);
+    struct tm lt;
+    localtime_r(&t, &lt);
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
+             lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+             lt.tm_hour, lt.tm_min);
+    note["time"] = buf;
+  }
+
+  String payload;
+  serializeJson(note, payload);
+  mqttClient.publish("tabbie/notify", payload.c_str());
+  Serial.print("📢 MQTT notify: ");
+  Serial.println(payload);
+#endif
 }
 
 void clearScheduledFaceOverride() {
@@ -1315,50 +1351,44 @@ void checkScheduledFaces() {
   localtime_r(&t, &lt);
   int ymd = (lt.tm_year + 1900) * 10000 + (lt.tm_mon + 1) * 100 + lt.tm_mday;
 
+  if (lt.tm_hour == 0 && lt.tm_min >= 10 && escalationResetLastYmd != ymd) {
+    escalationResetLastYmd = ymd;
+    if (escalationCancelled) {
+      escalationCancelled = false;
+      Serial.println("⏰ Escalation flag reset for new day");
+    }
+  }
+
   for (int i = 0; i < scheduledFaceCount; i++) {
     ScheduledFace &s = scheduledFaces[i];
+    bool isSleepy = strcmp(s.animation, "sleepy") == 0;
+    bool isMorningWake = strcmp(s.animation, "mochi_happy") == 0 && s.hour == 8;
     bool scheduledMinute = (lt.tm_hour == s.hour && lt.tm_min == s.minute);
-    bool eveningSleepyCatchup = (strcmp(s.animation, "sleepy") == 0 && lt.tm_hour >= 18);
-    if (!scheduledMinute && !eveningSleepyCatchup) continue;
-    if (s.lastFiredYmd == ymd) continue;
+    bool sleepyCatchup = (isSleepy && (lt.tm_hour >= 18 || lt.tm_hour < 8));
+    bool morningWakeCatchup = (isMorningWake && lt.tm_hour >= 8 && lt.tm_hour < 12);
+    if (!scheduledMinute && !sleepyCatchup && !morningWakeCatchup) continue;
+
+    int fireKey = ymd;
+    if (isSleepy) {
+      fireKey = ymd * 10 + (lt.tm_hour < 8 ? 0 : 1);
+    }
+    if (s.lastFiredYmd == fireKey) continue;
 
     // Skip escalation entries (16:xx) when user pressed stop
     if (s.hour == 16 && escalationCancelled) {
-      s.lastFiredYmd = ymd;
+      s.lastFiredYmd = fireKey;
       Serial.printf("⏰ Scheduled escalation '%s' skipped at %02d:%02d\n",
                     s.animation, lt.tm_hour, lt.tm_min);
       continue;
     }
 
-    // Midnight (00:10) entry — resets the cancellation flag for a new day.
-    if (s.hour == 0 && s.minute == 10 && escalationCancelled) {
-      escalationCancelled = false;
-      Serial.println("⏰ Escalation flag reset for new day");
-    }
-
-    s.lastFiredYmd = ymd;
+    s.lastFiredYmd = fireKey;
     triggerAnimation(s.animation, s.task, 0);
     scheduledActiveAnim = s.animation;
     scheduledActiveStart = animationStartTime;
     scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
     Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
                   s.animation, lt.tm_hour, lt.tm_min);
-    // Notify via MQTT so the server can forward to Telegram
-    #ifdef TABBIE_MQTT
-    if (mqttClient.connected()) {
-      String note = "{\"anim\":\"";
-      note += s.animation;
-      note += "\",\"task\":\"";
-      note += s.task;
-      note += "\",\"time\":\"";
-      char buf[6];
-      snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
-      note += buf;
-      note += "\"}";
-      mqttClient.publish("tabbie/notify", note.c_str());
-      Serial.print("📢 MQTT notify: "); Serial.println(note);
-    }
-    #endif
   }
 }
 
@@ -2181,10 +2211,9 @@ void drawLoveAnimation() {
   if (frame >= LOVE01_FRAME_COUNT) {
     // Play once, return to idle
     Serial.println("💕 Love done - returning to idle");
-    currentAnimation = "idle";
-    currentTask = "";
     frame = 0;
     lastStart = 0;
+    triggerAnimation("idle", "", 0);
     moveServoTo(SERVO_CENTER);
   }
 }
@@ -2211,8 +2240,8 @@ void drawStartupAnimation() {
   frame++;
   if (frame >= STARTUP01_FRAME_COUNT) {
     hasCompletedStartup = true;
-    currentAnimation = "idle";
     frame = 0;
+    triggerAnimation("idle", "", 0);
     moveServoTo(SERVO_CENTER);
   }
 }
@@ -2365,8 +2394,7 @@ void drawTaskCompleteAnimation() {
   
   // Return to idle after 5 seconds
   if (millis() - animationStartTime > 5000) {
-    currentAnimation = "idle";
-    currentTask = "";
+    triggerAnimation("idle", "", 0);
     moveServoTo(SERVO_CENTER);
   }
 }

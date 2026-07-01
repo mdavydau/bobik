@@ -213,6 +213,17 @@ source .mqtt.env
 mosquitto_sub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" -t tabbie/status
 ```
 
+Forward face-change events to Bobik's Telegram channel by subscribing the server
+bridge to `tabbie/notify`. The ESP32 publishes this topic whenever the current
+face actually changes, no matter whether the change came from the on-device
+schedule, HTTP dashboard, MQTT command, or an automatic return to idle.
+
+Example event:
+
+```json
+{"event":"face-change","anim":"sleepy","animation":"sleepy","task":"sleepy time","uptime":12345,"time":"2026-07-01 19:34"}
+```
+
 Check the currently shown face from the LAN:
 
 ```bash
@@ -226,8 +237,10 @@ mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" \
   -t tabbie/cmd -m '{"animation":"status_alert","task":"voice assistant"}'
 ```
 
-The after-hours "angry when working past 18:00" rule can also run on the server
-now — point `tabbie_mood.sh`'s send step at `tabbie-pub` instead of curl.
+The after-hours behaviour now runs on the ESP32 itself: escalation happens at
+16:00/16:20/16:40, `sleepy` holds from 18:00 until 08:00, and `mochi_happy`
+wakes Bobik up from 08:00 until the noon coffee break. The legacy
+`tools/tabbie_mood.sh` script is only for manual experiments.
 
 ---
 

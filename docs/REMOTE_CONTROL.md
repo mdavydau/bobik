@@ -137,10 +137,10 @@ If your assistant can only do HTTP, point it at
 
 ## 5. Running without your laptop
 
-The example `tabbie_mood.sh` after-hours automation runs from a laptop via cron,
-so it stops when the laptop sleeps. For 24/7 behaviour, run the same cron entry
-on an always-on machine that can reach the board (the home node from §3B, or the
-remote server once connectivity is set up).
+The normal daily mood schedule now runs on the ESP32 itself, so it does not
+depend on a laptop or cron. The board handles the 16:00 escalation, `sleepy`
+from 18:00 to 08:00, and the morning `mochi_happy` wake-up after NTP time sync.
+The legacy `tools/tabbie_mood.sh` script is only for manual experiments.
 
 ---
 

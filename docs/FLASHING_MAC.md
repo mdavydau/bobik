@@ -28,8 +28,13 @@ After boot, the ESP32 runs these Europe/Warsaw on-device schedules:
 | 16:20 | `paused` | angrier warning |
 | 16:40 | `paused` | final warning |
 | 17:00 | `idle` | automatic revert from the 16:40 warning |
-| 18:00 | `sleepy` | evening sleepy face |
-| 00:10 | `idle` | reset the stop-escalation flag for the next day |
+| 18:00-08:00 | `sleepy` | night sleepy face |
+| 08:00-12:00 | `mochi_happy` | morning wake-up face |
+| 00:10 | internal only | reset the stop-escalation flag for the next day |
+
+Every real face change publishes a JSON event to MQTT topic `tabbie/notify`.
+The server-side Bobik Telegram bridge should subscribe to that topic and post
+the event into Bobik's Telegram channel.
 
 Stop the 16:00-17:00 escalation for the current day:
 
