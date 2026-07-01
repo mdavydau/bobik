@@ -123,9 +123,13 @@ ScheduledFace scheduledFaces[] = {
   { 12,  0, "coffee", "coffee time", 120, 0 },
   // Daily status report reminder, 14:30 Europe/Warsaw.
   { 14, 30, "status_alert", "STATUS STATUS STATUS", 300, 0 },
-  // Examples to add later, e.g.:
-  // {  9,  0, "focus",  "morning focus",  0, 0 },
-  // { 18,  0, "sweat",  "wrap it up",   120, 0 },
+  // Anger escalation: 16:00-17:00, levels get angrier every 20 min.
+  // Cancel by sending MQTT {"animation":"idle","task":"stop-escalation"}.
+  { 16,  0, "sweat",  "16:00 mozhet pora zakanchivat?", 1200, 0 },
+  { 16, 20, "paused", "16:20 ya serezno, hvatit!",     1200, 0 },
+  { 16, 40, "paused", "16:40 VYKLYUCHAY COMPUTER!!!",  1200, 0 },
+  // Midnight reset — re-enables escalation for next day
+  {  0, 10, "idle",   "reset escalation flag",            0, 0 },
 };
 const int scheduledFaceCount = sizeof(scheduledFaces) / sizeof(scheduledFaces[0]);
 
@@ -134,6 +138,9 @@ const int scheduledFaceCount = sizeof(scheduledFaces) / sizeof(scheduledFaces[0]
 String scheduledActiveAnim = "";
 unsigned long scheduledActiveStart = 0;
 unsigned long scheduledRevertAt = 0;
+
+// Anger escalation state — set to true via MQTT "stop-escalation" command
+bool escalationCancelled = false;
 
 // WiFi connection state machine
 String savedSSID = "";
@@ -1030,6 +1037,11 @@ void logDevSnapshot() {
 #ifdef TABBIE_MQTT
 // Apply an animation command from the MQTT bridge. Mirrors handleAnimation().
 void applyAnimation(const String& anim, const String& task, unsigned long durSec) {
+  // Check for escalation stop command
+  if (task == "stop-escalation") {
+    escalationCancelled = true;
+    Serial.println("⏰ Escalation cancelled by user");
+  }
   triggerAnimation(anim, task, durSec);
 }
 
@@ -1244,6 +1256,13 @@ void checkScheduledFaces() {
 
   for (int i = 0; i < scheduledFaceCount; i++) {
     ScheduledFace &s = scheduledFaces[i];
+    // Skip escalation entries (16:xx) when user pressed stop
+    if (s.hour == 16 && escalationCancelled) continue;
+    // Midnight (00:10) entry — resets the cancellation flag for a new day
+    if (s.hour == 0 && s.minute == 10 && escalationCancelled) {
+      escalationCancelled = false;
+      Serial.println("⏰ Escalation flag reset for new day");
+    }
     if (lt.tm_hour == s.hour && lt.tm_min == s.minute && s.lastFiredYmd != ymd) {
       s.lastFiredYmd = ymd;
       triggerAnimation(s.animation, s.task, 0);
@@ -1252,6 +1271,22 @@ void checkScheduledFaces() {
       scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
       Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
                     s.animation, lt.tm_hour, lt.tm_min);
+      // Notify via MQTT so the server can forward to Telegram
+      #ifdef TABBIE_MQTT
+      if (mqttClient.connected()) {
+        String note = "{\"anim\":\"";
+        note += s.animation;
+        note += "\",\"task\":\"";
+        note += s.task;
+        note += "\",\"time\":\"";
+        char buf[6];
+        snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+        note += buf;
+        note += "\"}";
+        mqttClient.publish("tabbie/notify", note.c_str());
+        Serial.print("📢 MQTT notify: "); Serial.println(note);
+      }
+      #endif
     }
   }
 }
