@@ -24,3 +24,7 @@ mochi-adapted/
 
 # macOS metadata
 .DS_Store
+
+# Google Calendar OAuth client (for minting a calendar-only token)
+.gcal_client_secret.json
+/firmware/.cache

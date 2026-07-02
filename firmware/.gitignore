@@ -4,6 +4,9 @@ wifi.env
 # MQTT broker credentials - keep secure! (copy mqtt_config.example.h)
 src/mqtt_config.h
 
+# Google Calendar OAuth credentials - keep secure! (copy calendar_config.example.h)
+src/calendar_config.h
+
 # Build artifacts
 .pio/
 compile_commands.json

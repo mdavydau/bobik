@@ -66,6 +66,19 @@ bool focusHalfwayDone = false;
   #endif
 #endif
 
+// Optional Google Calendar schedule — enabled only when calendar_config.h exists.
+// When on, the board polls a dedicated calendar over HTTPS and drives faces from
+// it (OVERLAY: a covering calendar event wins; otherwise the built-in
+// ambientWindows[]/timedEvents[] schedule governs). See calendar_config.example.h.
+#if defined(__has_include)
+  #if __has_include("calendar_config.h")
+    #include "calendar_config.h"
+    #include <WiFiClientSecure.h>
+    #include <HTTPClient.h>
+    #define TABBIE_CALENDAR 1
+  #endif
+#endif
+
 // OLED display configuration - Using U8g2 with SH1106 driver
 U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
@@ -83,6 +96,21 @@ void mqttLoop();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void applyAnimation(const String& anim, const String& task, unsigned long durSec);
 void flushPendingFaceNotification();
+#endif
+
+#ifdef TABBIE_CALENDAR
+// Cached OAuth access token (refreshed from GCAL_REFRESH_TOKEN as needed).
+String gcalAccessToken = "";
+unsigned long gcalTokenExpiresAt = 0;     // millis() deadline; 0 = none/expired
+unsigned long lastCalendarPoll = 0;
+bool calendarPollPrimed = false;          // have we done the first poll yet?
+// The face the calendar last drove; "" means "no covering event right now".
+String calendarActiveAnim = "";
+bool calendarOverrideActive = false;      // true while a calendar event owns the face
+void checkCalendarSchedule();
+bool gcalEnsureAccessToken();
+bool gcalFetchCurrentEvent(String& animOut, String& taskOut);
+bool gcalInsertEvent(const String& anim, const String& task, long startInSec, long durSec);
 #endif
 
 // WiFi credentials storage
@@ -109,21 +137,45 @@ bool timeSynced = false;             // NTP returned a valid wall-clock time
 unsigned long lastTimeSyncAttempt = 0;
 unsigned long lastScheduleCheck = 0;
 
-// A scheduled face fires once per day at hour:minute (device-local time),
-// shows for `showSec`, then reverts to idle. Add rows for more time-of-day faces.
-struct ScheduledFace {
-  uint8_t hour;
-  uint8_t minute;
+// AMBIENT FACES BY TIME-OF-DAY WINDOW
+// -----------------------------------
+// Each window owns a stretch of the day. The device always knows which window
+// "now" falls into, so on boot (or after any restart) it shows the correct
+// face for the current time — not whatever happened to fire last. A manual
+// API/MQTT face selection persists until the next window boundary.
+struct AmbientWindow {
+  uint8_t startHour;
+  uint8_t startMinute;
   const char* animation;   // must be a wired animation name (see updateDisplay)
   const char* task;
-  uint16_t showSec;        // hold time before returning to idle (0 = leave it up)
+};
+// MUST be sorted ascending by start time, and the first entry MUST be 00:00 so
+// every moment of the day maps to exactly one window.
+AmbientWindow ambientWindows[] = {
+  {  0,  0, "sleepy",      "sleepy time" },   // 00:00–08:00  night
+  {  8,  0, "mochi_happy", "good morning" },  // 08:00–12:00  morning
+  { 12,  0, "coffee",           "coffee time" },      // 12:00–13:00  coffee break
+  { 13,  0, "upiir_big_smile",  "afternoon energy" }, // 13:00–16:00  peppy afternoon
+  { 16,  0, "idle",             "" },                 // 16:00–18:00  work day / anger window
+  { 18,  0, "sleepy",           "sleepy time" },      // 18:00–24:00  evening wind-down
+};
+const int ambientWindowCount = sizeof(ambientWindows) / sizeof(ambientWindows[0]);
+int currentAmbientWindow = -1;   // index last applied; -1 = none yet (fresh boot)
+
+// ONE-SHOT TIMED EVENTS
+// ---------------------
+// Fire once per day at an exact hour:minute, hold for `showSec`, then revert to
+// the ambient face for the current window. Unlike ambient windows these do NOT
+// catch up on boot — a nag you missed is a nag you missed.
+struct TimedEvent {
+  uint8_t hour;
+  uint8_t minute;
+  const char* animation;
+  const char* task;
+  uint16_t showSec;        // hold time before reverting to ambient
   int lastFiredYmd;        // internal: YYYYMMDD it last fired (0 = never)
 };
-ScheduledFace scheduledFaces[] = {
-  // Morning wake-up, after the sleepy night window.
-  {  8,  0, "mochi_happy", "good morning", 0, 0 },
-  // Noon coffee break, 12:00 Europe/Warsaw.
-  { 12,  0, "coffee", "coffee time", 120, 0 },
+TimedEvent timedEvents[] = {
   // Daily status report reminder, 14:30 Europe/Warsaw.
   { 14, 30, "status_alert", "STATUS STATUS STATUS", 300, 0 },
   // Anger escalation: 16:00-17:00, levels get angrier every 20 min.
@@ -131,10 +183,8 @@ ScheduledFace scheduledFaces[] = {
   { 16,  0, "sweat",  "16:00 mozhet pora zakanchivat?", 1200, 0 },
   { 16, 20, "paused", "16:20 ya serezno, hvatit!",     1200, 0 },
   { 16, 40, "paused", "16:40 VYKLYUCHAY COMPUTER!!!",  1200, 0 },
-  // Evening wind-down, stays up until the next scheduled face/command.
-  { 18,  0, "sleepy", "sleepy time",                      0, 0 },
 };
-const int scheduledFaceCount = sizeof(scheduledFaces) / sizeof(scheduledFaces[0]);
+const int timedEventCount = sizeof(timedEvents) / sizeof(timedEvents[0]);
 
 // Tracks a currently-showing scheduled face so we can auto-revert it to idle,
 // but only if nothing else (API/MQTT) has taken over in the meantime.
@@ -624,6 +674,11 @@ void loop() {
 
   // Keep the clock synced and fire any time-of-day scheduled faces (on-device)
   syncTimeIfNeeded();
+#ifdef TABBIE_CALENDAR
+  // Calendar overlay: when an event covers "now" it owns the face; otherwise the
+  // built-in schedule below takes over. Runs first so it can claim/release.
+  checkCalendarSchedule();
+#endif
   checkScheduledFaces();
   logDevSnapshot();
 
@@ -1089,6 +1144,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       }
     }
 
+#ifdef TABBIE_CALENDAR
+    // {"cal_add":{"anim":"focus","task":"report","in":3600,"dur":1800}}
+    // Board writes an event into the Bobik calendar ("in"/"dur" in seconds).
+    if (doc["cal_add"].is<JsonObject>()) {
+      JsonObject c = doc["cal_add"];
+      String cAnim = c["anim"] | "";
+      String cTask = c["task"] | "";
+      long cIn = c["in"] | 0L;
+      long cDur = c["dur"] | 0L;
+      bool ok = gcalInsertEvent(cAnim, cTask, cIn, cDur);
+      Serial.printf("📩 MQTT cal_add '%s' -> %s\n", cAnim.c_str(), ok ? "ok" : "failed");
+      return;
+    }
+#endif
+
     String anim = doc["animation"] | "";
     String task = doc["task"] | "";
     unsigned long dur = doc["duration"] | 0UL;
@@ -1358,18 +1428,54 @@ void syncTimeIfNeeded() {
   }
 }
 
-// Fire time-of-day faces from the scheduledFaces table, entirely on-device.
+// Which ambient window owns the given local time (index into ambientWindows).
+int ambientWindowIndexFor(const struct tm& lt) {
+  int cur = lt.tm_hour * 60 + lt.tm_min;
+  int idx = 0;   // first window starts at 00:00, so cur is always >= it
+  for (int i = 0; i < ambientWindowCount; i++) {
+    int start = ambientWindows[i].startHour * 60 + ambientWindows[i].startMinute;
+    if (cur >= start) idx = i;
+  }
+  return idx;
+}
+
+// Show the ambient face for the current time and remember which window it was,
+// so we only re-apply on boundary crossings (manual picks survive within a
+// window). Also arms the revert-guard so a later timed event knows what it
+// replaced.
+void applyAmbientFace(const struct tm& lt) {
+  int idx = ambientWindowIndexFor(lt);
+  currentAmbientWindow = idx;
+  AmbientWindow &w = ambientWindows[idx];
+  triggerAnimation(w.animation, w.task, 0);
+  scheduledActiveAnim = w.animation;
+  scheduledActiveStart = animationStartTime;
+  scheduledRevertAt = 0;   // ambient faces never auto-revert
+  Serial.printf("🕰 Ambient face '%s' for %02d:%02d\n",
+                w.animation, lt.tm_hour, lt.tm_min);
+}
+
+// Drive time-of-day faces entirely on-device: ambient windows (with boot
+// catch-up) plus one-shot timed events.
 void checkScheduledFaces() {
   if (!timeSynced || isInSetupMode || !hasCompletedStartup) return;
+#ifdef TABBIE_CALENDAR
+  // A calendar event is currently driving the face — let it own the display and
+  // don't fight it with ambient windows or timed events.
+  if (calendarOverrideActive) return;
+#endif
   unsigned long now = millis();
 
-  // Auto-revert a scheduled face to idle after its hold window — but only if
-  // nothing else (API/MQTT) has changed the animation since we set it.
+  // Revert a finished timed event back to the current ambient face — but only
+  // if nothing else (API/MQTT) has changed the animation since we set it.
   if (scheduledRevertAt != 0 && now >= scheduledRevertAt) {
-    if (currentAnimation == scheduledActiveAnim && animationStartTime == scheduledActiveStart) {
-      triggerAnimation("idle", "", 0);
-    }
     scheduledRevertAt = 0;
+    if (currentAnimation == scheduledActiveAnim && animationStartTime == scheduledActiveStart) {
+      time_t t = time(nullptr);
+      struct tm lt;
+      localtime_r(&t, &lt);
+      applyAmbientFace(lt);
+    }
   }
 
   if (now - lastScheduleCheck < 15000) return;   // ~4 checks/min is plenty
@@ -1388,38 +1494,265 @@ void checkScheduledFaces() {
     }
   }
 
-  for (int i = 0; i < scheduledFaceCount; i++) {
-    ScheduledFace &s = scheduledFaces[i];
-    bool isSleepy = strcmp(s.animation, "sleepy") == 0;
-    bool isMorningWake = strcmp(s.animation, "mochi_happy") == 0 && s.hour == 8;
-    bool scheduledMinute = (lt.tm_hour == s.hour && lt.tm_min == s.minute);
-    bool sleepyCatchup = (isSleepy && (lt.tm_hour >= 18 || lt.tm_hour < 8));
-    bool morningWakeCatchup = (isMorningWake && lt.tm_hour >= 8 && lt.tm_hour < 12);
-    if (!scheduledMinute && !sleepyCatchup && !morningWakeCatchup) continue;
+  // One-shot timed events take priority: fire at their exact minute, once/day.
+  for (int i = 0; i < timedEventCount; i++) {
+    TimedEvent &e = timedEvents[i];
+    if (lt.tm_hour != e.hour || lt.tm_min != e.minute) continue;
+    if (e.lastFiredYmd == ymd) continue;
 
-    int fireKey = ymd;
-    if (isSleepy) {
-      fireKey = ymd * 10 + (lt.tm_hour < 8 ? 0 : 1);
-    }
-    if (s.lastFiredYmd == fireKey) continue;
-
-    // Skip escalation entries (16:xx) when user pressed stop
-    if (s.hour == 16 && escalationCancelled) {
-      s.lastFiredYmd = fireKey;
-      Serial.printf("⏰ Scheduled escalation '%s' skipped at %02d:%02d\n",
-                    s.animation, lt.tm_hour, lt.tm_min);
+    // Skip escalation entries (16:xx) when the user pressed stop.
+    if (e.hour == 16 && escalationCancelled) {
+      e.lastFiredYmd = ymd;
+      Serial.printf("⏰ Timed event '%s' skipped at %02d:%02d (escalation cancelled)\n",
+                    e.animation, lt.tm_hour, lt.tm_min);
       continue;
     }
 
-    s.lastFiredYmd = fireKey;
-    triggerAnimation(s.animation, s.task, 0);
-    scheduledActiveAnim = s.animation;
+    e.lastFiredYmd = ymd;
+    triggerAnimation(e.animation, e.task, 0);
+    scheduledActiveAnim = e.animation;
     scheduledActiveStart = animationStartTime;
-    scheduledRevertAt = (s.showSec > 0) ? now + (unsigned long)s.showSec * 1000UL : 0;
-    Serial.printf("⏰ Scheduled face '%s' fired at %02d:%02d\n",
-                  s.animation, lt.tm_hour, lt.tm_min);
+    scheduledRevertAt = (e.showSec > 0) ? now + (unsigned long)e.showSec * 1000UL : 0;
+    Serial.printf("⏰ Timed event '%s' fired at %02d:%02d\n",
+                  e.animation, lt.tm_hour, lt.tm_min);
+    return;   // don't also touch the ambient face on the same tick
+  }
+
+  // Ambient face: applied on fresh boot (currentAmbientWindow == -1) and on
+  // every window boundary crossing. Leaves manual picks alone mid-window, and
+  // never stomps a timed event that's still holding.
+  int idx = ambientWindowIndexFor(lt);
+  if (idx != currentAmbientWindow) {
+    if (scheduledRevertAt != 0) {
+      currentAmbientWindow = idx;   // event is holding; it'll revert to ambient
+    } else {
+      applyAmbientFace(lt);
+    }
   }
 }
+
+#ifdef TABBIE_CALENDAR
+// ============================================
+// GOOGLE CALENDAR SCHEDULE (overlay over the built-in schedule above)
+// ============================================
+// Percent-encode everything except RFC3986 unreserved chars, so calendar ids
+// (which contain '@') and query values are safe in a URL.
+String gcalUrlEncode(const String& s) {
+  static const char* hex = "0123456789ABCDEF";
+  String out;
+  out.reserve(s.length() * 3);
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += c;
+    } else {
+      out += '%';
+      out += hex[(c >> 4) & 0xF];
+      out += hex[c & 0xF];
+    }
+  }
+  return out;
+}
+
+// Map an event title to a firmware animation name. Titles are meant to be face
+// names directly (focus, coffee, sleepy...); we also accept a few friendly
+// synonyms, mirroring tabbie-pub. Unknown titles pass through unchanged so a raw
+// animation name always works.
+String gcalMapTitleToAnim(String title) {
+  title.trim();
+  title.toLowerCase();
+  if (title.length() == 0) return "";
+  if (title == "angry" || title == "mad") return "paused";
+  if (title == "happy") return "love";
+  if (title == "done" || title == "complete" || title == "celebrate") return "complete";
+  if (title == "work") return "focus";
+  if (title == "relax" || title == "rest" || title == "calm") return "break";
+  if (title == "timer") return "pomodoro";
+  if (title == "neutral" || title == "normal") return "idle";
+  if (title == "hello" || title == "boot") return "startup";
+  if (title == "hot" || title == "tired") return "sweat";
+  if (title == "sleep" || title == "night" || title == "zzz") return "sleepy";
+  if (title == "brew") return "coffee";
+  title.replace('-', '_');   // "mochi-happy" -> "mochi_happy"
+  return title;
+}
+
+// Refresh the OAuth access token from the stored refresh token when the cached
+// one is missing or about to expire. TLS is unauthenticated (setInsecure) — a
+// pinned root can be added later; the tradeoff is reliability over MITM defense.
+bool gcalEnsureAccessToken() {
+  unsigned long now = millis();
+  if (gcalAccessToken.length() > 0 && gcalTokenExpiresAt != 0 && now < gcalTokenExpiresAt) {
+    return true;
+  }
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  if (!https.begin(client, GCAL_TOKEN_URI)) return false;
+  https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  String body = "grant_type=refresh_token";
+  body += "&client_id=" + gcalUrlEncode(GCAL_CLIENT_ID);
+  body += "&client_secret=" + gcalUrlEncode(GCAL_CLIENT_SECRET);
+  body += "&refresh_token=" + gcalUrlEncode(GCAL_REFRESH_TOKEN);
+  int code = https.POST(body);
+  if (code != 200) {
+    Serial.printf("📅 token refresh failed: HTTP %d\n", code);
+    https.end();
+    return false;
+  }
+  String payload = https.getString();
+  https.end();
+  JsonDocument doc;
+  if (deserializeJson(doc, payload)) return false;
+  const char* at = doc["access_token"];
+  if (!at) return false;
+  long expiresIn = doc["expires_in"] | 3600;
+  gcalAccessToken = at;
+  // Renew a minute early to avoid using a token that expires mid-request.
+  gcalTokenExpiresAt = millis() + (unsigned long)(expiresIn > 60 ? expiresIn - 60 : expiresIn) * 1000UL;
+  return true;
+}
+
+// Ask Google for the single event that covers "now". We bound the query to
+// [now, now+1s], so the API itself returns only currently-active events — no
+// date parsing on-device. Returns false on network/auth error (leave the
+// current face alone); returns true with animOut="" when nothing covers now.
+bool gcalFetchCurrentEvent(String& animOut, String& taskOut) {
+  animOut = "";
+  taskOut = "";
+  if (!gcalEnsureAccessToken()) return false;
+
+  time_t nowt = time(nullptr);
+  struct tm g;
+  char tmin[24];
+  char tmax[24];
+  gmtime_r(&nowt, &g);
+  strftime(tmin, sizeof(tmin), "%Y-%m-%dT%H:%M:%SZ", &g);
+  time_t maxt = nowt + 1;
+  gmtime_r(&maxt, &g);
+  strftime(tmax, sizeof(tmax), "%Y-%m-%dT%H:%M:%SZ", &g);
+
+  String url = "https://www.googleapis.com/calendar/v3/calendars/";
+  url += gcalUrlEncode(GCAL_CALENDAR_ID);
+  // Fetch all events covering "now" (ordered by start ascending). When several
+  // overlap — e.g. a short "nag" inside a long ambient window — the LAST one
+  // (latest start = most specific) wins, so nags beat their background window.
+  url += "/events?singleEvents=true&orderBy=startTime&maxResults=10";
+  url += "&timeMin=" + String(tmin) + "&timeMax=" + String(tmax);
+  url += "&fields=" + gcalUrlEncode("items(summary,description)");
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  if (!https.begin(client, url)) return false;
+  https.addHeader("Authorization", "Bearer " + gcalAccessToken);
+  int code = https.GET();
+  if (code != 200) {
+    if (code == 401) {   // token rejected — force a refresh next time
+      gcalAccessToken = "";
+      gcalTokenExpiresAt = 0;
+    }
+    Serial.printf("📅 calendar GET failed: HTTP %d\n", code);
+    https.end();
+    return false;
+  }
+  String payload = https.getString();
+  https.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, payload)) {
+    Serial.println("📅 calendar JSON parse error");
+    return false;
+  }
+  JsonArray items = doc["items"].as<JsonArray>();
+  if (items.isNull() || items.size() == 0) return true;   // valid: no event now
+  JsonObject ev = items[items.size() - 1];   // latest-starting = most specific
+  const char* summary = ev["summary"] | "";
+  const char* desc = ev["description"] | "";
+  animOut = gcalMapTitleToAnim(String(summary));
+  taskOut = String(desc);
+  return true;
+}
+
+// Create an event in the Bobik calendar so the board can write its own schedule.
+// startInSec/durSec are relative to now; a non-positive duration defaults to 30m.
+bool gcalInsertEvent(const String& anim, const String& task, long startInSec, long durSec) {
+  if (anim.length() == 0) return false;
+  if (!gcalEnsureAccessToken()) return false;
+
+  time_t s = time(nullptr) + startInSec;
+  time_t e = s + (durSec > 0 ? durSec : 1800);
+  struct tm g;
+  char sb[24];
+  char eb[24];
+  gmtime_r(&s, &g);
+  strftime(sb, sizeof(sb), "%Y-%m-%dT%H:%M:%SZ", &g);
+  gmtime_r(&e, &g);
+  strftime(eb, sizeof(eb), "%Y-%m-%dT%H:%M:%SZ", &g);
+
+  JsonDocument doc;
+  doc["summary"] = anim;
+  if (task.length() > 0) doc["description"] = task;
+  doc["start"]["dateTime"] = sb;
+  doc["end"]["dateTime"] = eb;
+  String body;
+  serializeJson(doc, body);
+
+  String url = "https://www.googleapis.com/calendar/v3/calendars/";
+  url += gcalUrlEncode(GCAL_CALENDAR_ID);
+  url += "/events";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  if (!https.begin(client, url)) return false;
+  https.addHeader("Authorization", "Bearer " + gcalAccessToken);
+  https.addHeader("Content-Type", "application/json");
+  int code = https.POST(body);
+  https.end();
+  if (code == 200 || code == 201) {
+    Serial.printf("📅 event created: %s (+%lds for %lds)\n", anim.c_str(), startInSec, durSec);
+    return true;
+  }
+  Serial.printf("📅 event insert failed: HTTP %d\n", code);
+  return false;
+}
+
+// Poll the calendar and claim/release the face overlay on event transitions
+// (not every poll), so a manual MQTT/API pick mid-event isn't stomped.
+void checkCalendarSchedule() {
+  if (isInSetupMode || !hasCompletedStartup || !timeSynced) return;
+  if (WiFi.status() != WL_CONNECTED) return;   // offline: built-in schedule rules
+
+  unsigned long now = millis();
+  if (calendarPollPrimed && (now - lastCalendarPoll < (unsigned long)GCAL_POLL_SECONDS * 1000UL)) {
+    return;
+  }
+  lastCalendarPoll = now;
+  calendarPollPrimed = true;
+
+  String anim;
+  String task;
+  if (!gcalFetchCurrentEvent(anim, task)) return;   // error: keep current state
+
+  if (anim.length() > 0) {
+    if (anim != calendarActiveAnim) {
+      triggerAnimation(anim, task, 0);
+      calendarActiveAnim = anim;
+      Serial.printf("📅 calendar face '%s' (%s)\n", anim.c_str(), task.c_str());
+    }
+    calendarOverrideActive = true;
+  } else if (calendarOverrideActive || calendarActiveAnim.length() > 0) {
+    // Event just ended — release the overlay and let the built-in schedule
+    // reassert on the next checkScheduledFaces() tick.
+    calendarActiveAnim = "";
+    calendarOverrideActive = false;
+    currentAmbientWindow = -1;
+    Serial.println("📅 calendar event ended -> back to built-in schedule");
+  }
+}
+#endif  // TABBIE_CALENDAR
 
 void drawMochi_happyAnimation() {
   static int frame = 0;
