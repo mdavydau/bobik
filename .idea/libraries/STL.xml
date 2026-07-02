@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="STL">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hardware/STL/STL.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
