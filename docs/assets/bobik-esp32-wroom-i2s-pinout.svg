@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <style>
+      .bg { fill: #0f172a; }
+      .card { fill: #111827; stroke: #334155; stroke-width: 3; rx: 28; }
+      .title { fill: #e2e8f0; font: 700 44px Arial, sans-serif; }
+      .sub { fill: #cbd5e1; font: 400 26px Arial, sans-serif; }
+      .label { fill: #e2e8f0; font: 700 30px Arial, sans-serif; }
+      .small { fill: #cbd5e1; font: 400 24px Arial, sans-serif; }
+      .pin { fill: #0b1220; stroke: #64748b; stroke-width: 2; rx: 16; }
+      .pinText { fill: #f8fafc; font: 700 30px Arial, sans-serif; }
+      .wire { stroke-width: 10; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .green { stroke: #22c55e; }
+      .blue { stroke: #38bdf8; }
+      .amber { stroke: #f59e0b; }
+      .pink { stroke: #f472b6; }
+      .violet { stroke: #a78bfa; }
+      .chip { fill: #1e293b; stroke: #475569; stroke-width: 3; rx: 34; }
+      .chipTitle { fill: #f8fafc; font: 700 38px Arial, sans-serif; }
+      .chipText { fill: #cbd5e1; font: 400 24px Arial, sans-serif; }
+      .note { fill: #94a3b8; font: 400 20px Arial, sans-serif; }
+      .arrow { marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="900"/>
+  <text x="60" y="72" class="title">Bobik voice MVP — ESP32 WROOM pinout for M5Stack PDM Mini Unit</text>
+  <text x="60" y="114" class="sub">Use 3.3V only. This is the no-solder desk-mic wiring for local wake word + offline commands.</text>
+
+  <!-- Left card: microphone module -->
+  <rect x="60" y="170" width="480" height="610" class="card" rx="28"/>
+  <text x="95" y="225" class="label">M5Stack PDM Mini Unit</text>
+  <text x="95" y="262" class="small">Grove / PDM MEMS microphone</text>
+
+  <rect x="95" y="310" width="410" height="82" class="pin" rx="16"/>
+  <text x="125" y="362" class="pinText">GND</text>
+  <text x="265" y="362" class="small">→ ESP32 GND</text>
+
+  <rect x="95" y="414" width="410" height="82" class="pin" rx="16"/>
+  <text x="125" y="466" class="pinText">VCC</text>
+  <text x="265" y="466" class="small">→ ESP32 3V3</text>
+
+  <rect x="95" y="518" width="410" height="82" class="pin" rx="16"/>
+  <text x="125" y="570" class="pinText">WS</text>
+  <text x="245" y="570" class="small">→ I2S WS / LRCLK</text>
+
+  <rect x="95" y="622" width="410" height="82" class="pin" rx="16"/>
+  <text x="125" y="674" class="pinText">SD</text>
+  <text x="245" y="674" class="small">→ I2S DATA IN</text>
+
+  <rect x="95" y="726" width="410" height="82" class="pin" rx="16"/>
+  <text x="125" y="778" class="pinText">SCK</text>
+  <text x="255" y="778" class="small">→ I2S BCLK</text>
+
+  <!-- Center arrows -->
+  <path d="M 510 351 C 650 351, 650 330, 780 330" class="wire green arrow"/>
+  <path d="M 510 455 C 650 455, 650 410, 780 410" class="wire amber arrow"/>
+  <path d="M 510 559 C 650 559, 650 520, 780 520" class="wire blue arrow"/>
+  <path d="M 510 663 C 650 663, 650 650, 780 650" class="wire pink arrow"/>
+  <path d="M 510 767 C 650 767, 650 780, 780 780" class="wire violet arrow"/>
+
+  <!-- Right card: ESP32 -->
+  <rect x="860" y="170" width="680" height="610" class="chip" rx="34"/>
+  <text x="905" y="225" class="chipTitle">ESP32 WROOM-32 DevKit</text>
+  <text x="905" y="262" class="chipText">Recommended practical GPIO mapping for Bobik</text>
+
+  <rect x="915" y="310" width="570" height="82" class="pin" rx="16"/>
+  <text x="945" y="362" class="pinText">GPIO26</text>
+  <text x="1120" y="362" class="small">← SCK / BCLK</text>
+
+  <rect x="915" y="414" width="570" height="82" class="pin" rx="16"/>
+  <text x="945" y="466" class="pinText">GPIO25</text>
+  <text x="1120" y="466" class="small">← WS / LRCLK</text>
+
+  <rect x="915" y="518" width="570" height="82" class="pin" rx="16"/>
+  <text x="945" y="570" class="pinText">GPIO33</text>
+  <text x="1120" y="570" class="small">← SD / DATA IN</text>
+
+  <rect x="915" y="622" width="570" height="82" class="pin" rx="16"/>
+  <text x="945" y="674" class="pinText">GND</text>
+  <text x="1120" y="674" class="small">← GND</text>
+
+  <rect x="915" y="726" width="570" height="82" class="pin" rx="16"/>
+  <text x="945" y="778" class="pinText">3V3</text>
+  <text x="1120" y="778" class="small">← VCC</text>
+
+  <text x="60" y="845" class="note">If your board exposes different free GPIOs, the I2S bus can be remapped — but this is a good, conflict-free starter wiring for ESP32-WROOM.</text>
+  <text x="60" y="872" class="note">Pin roles: GND → ground, VCC → 3.3V, WS → word select / LRCLK, SD → microphone data out, SCK → bit clock.</text>
+</svg>
