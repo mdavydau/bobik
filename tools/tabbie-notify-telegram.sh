@@ -95,7 +95,11 @@ except json.JSONDecodeError:
     print(f"Bobik face change\n{raw}")
     raise SystemExit
 
-anim = data.get("animation") or data.get("anim") or "unknown"
+anim = data.get("animation") or data.get("anim")
+if not anim:
+    # Not a face change (e.g. a {"meter":...}/{"dev":...}/{"cal_add":...} command
+    # if this bridge is subscribed to tabbie/cmd) — stay silent, don't spam.
+    raise SystemExit
 task = data.get("task") or ""
 when = data.get("time") or ""
 marker = emoji.get(anim, "face")
@@ -114,6 +118,7 @@ send_telegram() {
   local text
 
   text="$(format_message "$payload")"
+  [ -z "$text" ] && return 0   # non-face payload → nothing to send
   curl -fsS -m 10 --retry 2 -X POST \
     "${TELEGRAM_API_BASE}${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
