@@ -293,6 +293,7 @@ void drawMochi_loveAnimation();
 void drawUpiir_big_smileAnimation();
 void drawStatus_alertAnimation();
 void drawMeterScreen();
+void drawBmoFace(const String& mood);
 void drawDebugInfo();
 void drawDevInfo();
 String clipForDisplay(const String& value, int maxLen);
@@ -2100,6 +2101,84 @@ void drawMeterScreen() {
   flushDisplay();
 }
 
+// ============================================
+// PROCEDURAL BMO-STYLE FACES (experiment)
+// Line-art faces built from primitives — no bitmaps. Trigger over MQTT with
+// {"animation":"bmo_<mood>"}: bliss, happy, neutral, worried, panic.
+// ============================================
+
+// Shallow mouth curve: depth>0 = smile (center lower), <0 = frown, 0 = flat.
+static void bmoMouth(int cx, int by, int halfW, int depth) {
+  int px = cx - halfW, py = by;
+  for (int x = cx - halfW + 4; x <= cx + halfW; x += 4) {
+    long t = x - cx;
+    int off = (int)(depth - (depth * t * t) / ((long)halfW * halfW));
+    int y = by + off;
+    display.drawLine(px, py, x, y);
+    px = x; py = y;
+  }
+}
+static void bmoEyeDot(int x, int y)    { display.drawDisc(x, y, 3); }
+static void bmoEyeClosed(int x, int y) { bmoMouth(x, y, 7, 4); }   // little "‿"
+static void bmoEyeLid(int x, int y)    { display.drawDisc(x, y, 2); display.drawHLine(x - 7, y - 6, 15); }
+static void bmoEyeBrow(int x, int y, int dir) {                    // angry brow + dot
+  display.drawDisc(x, y, 2);
+  display.drawLine(x + dir * 8, y - 8, x - dir * 4, y - 4);
+}
+
+void drawBmoFace(const String& mood) {
+  static unsigned long lastFrame = 0;
+  unsigned long now = millis();
+  if (now - lastFrame < 40) return;   // ~25fps, don't hammer the I2C bus
+  lastFrame = now;
+
+  bool panic = (mood == "bmo_panic");
+
+  // Gentle idle "breathing": the whole face floats up/down a couple pixels.
+  int bob   = (int)lroundf(sinf(now * 0.0026f) * 2.4f);
+  int breath= (int)lroundf(sinf(now * 0.0031f) * 1.5f);   // mouth depth wobble
+
+  // Smooth blink: eyes squash shut for ~220ms every ~3.6s (skipped while panicking).
+  float open = 1.0f;
+  unsigned long bt = now % 3600;
+  if (!panic && bt < 220) open = fabsf((bt / 220.0f) - 0.5f) * 2.0f;   // 1→0→1
+
+  // Occasional sideways glance (saccade) every ~5s.
+  int look = 0;
+  if (!panic && (now % 5000) < 700) look = ((now / 5000) % 2) ? 3 : -3;
+
+  int shake = panic ? (((now / 70) % 2) ? 3 : -3) : 0;   // panic shake
+  int lx = 44 + look + shake, rx = 84 + look + shake, ey = 24 + bob;
+  int mcx = 64 + shake, mcy = 42 + bob;
+
+  display.clearBuffer();
+
+  // --- eyes ---
+  if (mood == "bmo_bliss") {
+    bmoEyeClosed(lx, ey); bmoEyeClosed(rx, ey);
+  } else if (mood == "bmo_worried") {
+    bmoEyeLid(lx, ey); bmoEyeLid(rx, ey);
+  } else if (panic) {
+    bmoEyeBrow(lx, ey, -1); bmoEyeBrow(rx, ey, +1);
+    display.drawDisc(lx, ey, 2); display.drawDisc(rx, ey, 2);   // wide, jittering
+  } else {
+    int ry = 1 + (int)lroundf(open * 2.0f);   // 1 (shut) .. 3 (open)
+    display.drawFilledEllipse(lx, ey, 3, ry);
+    display.drawFilledEllipse(rx, ey, 3, ry);
+  }
+
+  // --- mouth (breathing wobble; nervous in panic) ---
+  int wob = panic ? (((now / 90) % 2) ? 2 : -2) : breath;
+  if      (mood == "bmo_bliss")   bmoMouth(mcx, mcy, 26,  12 + wob);
+  else if (mood == "bmo_happy")   bmoMouth(mcx, mcy, 22,   6 + wob);
+  else if (mood == "bmo_neutral") bmoMouth(mcx, mcy, 18,   0 + wob);
+  else if (mood == "bmo_worried") bmoMouth(mcx, mcy, 20,  -7 + wob);
+  else if (panic)                 bmoMouth(mcx, mcy, 22, -10 + wob);
+  else                            bmoMouth(mcx, mcy, 20,   4 + wob);
+
+  flushDisplay();
+}
+
 void updateDisplay() {
   // Handle startup animation - play once then go to idle
   if (!hasCompletedStartup) {
@@ -2160,6 +2239,8 @@ void updateDisplay() {
     drawStatus_alertAnimation();
   } else if (currentAnimation == "meter") {
     drawMeterScreen();
+  } else if (currentAnimation.startsWith("bmo_")) {
+    drawBmoFace(currentAnimation);
   } else if (currentAnimation == "pomodoro") {
     drawPomodoroAnimation();
   } else if (currentAnimation == "complete") {

@@ -185,11 +185,11 @@ fi
 zoneface() {  # $1=used $2=limit
   local p=0
   [ "${2:-0}" -gt 0 ] 2>/dev/null && p=$(( $1 * 100 / $2 ))
-  if   [ "$p" -lt 20 ]; then echo break         # relax (calm)
-  elif [ "$p" -lt 40 ]; then echo mochi_happy    # productive
-  elif [ "$p" -lt 60 ]; then echo focus          # in the zone
-  elif [ "$p" -lt 80 ]; then echo sweat          # heating up
-  else                       echo paused; fi     # panic (angry, shaking)
+  if   [ "$p" -lt 20 ]; then echo bmo_bliss       # calm
+  elif [ "$p" -lt 40 ]; then echo bmo_happy       # productive
+  elif [ "$p" -lt 60 ]; then echo bmo_neutral     # in the zone
+  elif [ "$p" -lt 80 ]; then echo bmo_worried     # heating up
+  else                       echo bmo_panic; fi   # panic (shaking)
 }
 
 publish_once() {
