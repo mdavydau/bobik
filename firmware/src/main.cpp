@@ -129,6 +129,8 @@ long meterPrev = 0;      // previous active day's total, for comparison (0 = hid
 String meterPrevLabel = ""; // short tag for that day, e.g. "Fri"
 long meterCl = 0;        // per-model split: claude tokens (0 = single-model day)
 long meterCx = 0;        // per-model split: codex tokens
+String meterSub = "";    // explicit bottom-line text; overrides the auto split/prev
+long meterTot = 0;       // total tokens incl. cache (0 = limit mode; >0 = output/total mode)
 unsigned long animationStartTime = 0;
 unsigned long startupTime = 0;
 bool hasCompletedStartup = false;
@@ -1181,6 +1183,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       meterPrevLabel = (const char*)(m["prevlab"] | "");
       meterCl = m["cl"] | 0L;
       meterCx = m["cx"] | 0L;
+      meterSub = (const char*)(m["sub"] | "");
+      meterTot = m["tot"] | 0L;
       applyAnimation("meter", meterLabel, 0);
       Serial.printf("📊 MQTT meter: %ld / %ld (%s)\n", meterUsed, meterLimit, meterLabel.c_str());
       return;
@@ -1969,15 +1973,22 @@ void drawMeterScreen() {
   // Top-left caption (e.g. "DAY"), top-right percentage.
   display.setFont(u8g2_font_6x10_tf);
   display.drawStr(0, 8, meterLabel.length() ? meterLabel.c_str() : "CTX");
-  char pctStr[8];
+  // % is output vs the "heavy day" limit (Friday-scale) — how much of a loaded
+  // day is already spent. The total (incl. cache) is shown on the bottom line.
+  char pctStr[10];
   snprintf(pctStr, sizeof(pctStr), "%d%%", pct);
   display.drawStr(128 - display.getStrWidth(pctStr), 8, pctStr);
+  if (limit > 0) {                          // what the % is of, e.g. "/540k"
+    char limStr[12];
+    snprintf(limStr, sizeof(limStr), "/%ldk", (limit + 500) / 1000);
+    display.drawStr(128 - display.getStrWidth(limStr), 18, limStr);
+  }
 
   // Big number = value in thousands, centered, with a small "k".
   long kVal = (used + 500) / 1000;   // round to nearest thousand
   char big[8];
   snprintf(big, sizeof(big), "%ld", kVal);
-  display.setFont(u8g2_font_logisoso28_tn);
+  display.setFont(u8g2_font_logisoso30_tn);   // OUTPUT is the headline — a touch bigger
   int bigW = display.getStrWidth(big);
   const int kGap = 3, kW = 9;         // room for the "k" suffix (7x13B ~ 7px)
   int startX = (128 - (bigW + kGap + kW)) / 2;
@@ -1989,7 +2000,7 @@ void drawMeterScreen() {
   // Progress bar; clamp fill, mark overflow with a full+blink.
   const int bx = 0, by = 42, bw = 128, bh = 8;
   display.drawFrame(bx, by, bw, bh);
-  int fillW = (limit > 0) ? (int)(((long)(bw - 2) * used) / limit) : 0;
+  int fillW = (limit > 0) ? (int)(((long)(bw - 2) * used) / limit) : 0;   // output vs Friday-scale limit
   if (fillW > bw - 2) fillW = bw - 2;       // clamp at 100%
   if (fillW < 0) fillW = 0;
   if (fillW > 0) display.drawBox(bx + 1, by + 1, fillW, bh - 2);
@@ -2005,11 +2016,30 @@ void drawMeterScreen() {
   if (pct > 100 && (millis() / 400) % 2) {  // over the red line: blink full
     display.drawBox(bx + 1, by + 1, bw - 2, bh - 2);
   }
+  // Decile ticks: short 2px notches on the top & bottom rails only (not full
+  // height). XOR so they read on both the filled and empty parts of the bar.
+  display.setDrawColor(2);
+  for (int i = 1; i < 10; i++) {
+    int tx = bx + 1 + (int)(((long)(bw - 2) * i) / 10);
+    display.drawVLine(tx, by + 1, 2);        // top rail
+    display.drawVLine(tx, by + bh - 3, 2);   // bottom rail
+  }
+  display.setDrawColor(1);
 
-  // Bottom line: with two models, show the split; otherwise the previous
-  // active day's total for comparison.
+  // Bottom line: explicit sub text wins (e.g. WEEK shows last week); else with
+  // two models show the split; otherwise the previous active day's total.
   display.setFont(u8g2_font_6x10_tf);
-  if (meterCx > 0) {
+  if (meterSub.length()) {
+    display.drawStr(0, 63, meterSub.c_str());
+  } else if (meterTot > 0) {
+    char t[28];
+    if (meterTot >= 1000000)
+      snprintf(t, sizeof(t), "of %ld.%ldM total",
+               meterTot / 1000000, (meterTot % 1000000) / 100000);
+    else
+      snprintf(t, sizeof(t), "of %ldk total", (meterTot + 500) / 1000);
+    display.drawStr(0, 63, t);
+  } else if (meterCx > 0) {
     char s[28];
     snprintf(s, sizeof(s), "CL %ldk  CX %ldk",
              (meterCl + 500) / 1000, (meterCx + 500) / 1000);

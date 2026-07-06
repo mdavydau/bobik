@@ -35,6 +35,18 @@ METER_LIMIT="${METER_LIMIT:-200000}"    # the "too much" red line for the metric
 METER_LABEL="${METER_LABEL:-DAY}"
 AGENT="${AGENT:-claude}"
 
+# Week view (Mon–Sun), pushed on request via `tabbie-tokenmeter.sh week`.
+WEEK_LIMIT="${WEEK_LIMIT:-5000000}"   # "too much" red line for a full week
+WEEK_HOLD="${WEEK_HOLD:-30}"          # seconds the week view holds before the
+                                      # DAY loop is allowed to overwrite it
+HOLD_FILE="${HOLD_FILE:-/tmp/tabbie-meter.hold}"
+
+# Total tokens (output+input+cache, both agents) for the "output/total" view.
+# Parsing logs is heavy, so cache the result and only recompute every TOTAL_TTL.
+SHOW_TOTAL="${SHOW_TOTAL:-1}"          # 0 = plain output/limit view (no total)
+TOTAL_TTL="${TOTAL_TTL:-60}"
+TOTAL_CACHE="${TOTAL_CACHE:-/tmp/tabbie-total.cache}"
+
 HOST="${MQTT_HOST:-localhost}"
 PORT="${MQTT_PORT:-1883}"
 TOPIC="${MQTT_TOPIC:-tabbie/cmd}"
@@ -98,6 +110,68 @@ prev_active_day() {
   printf '0\t'
 }
 
+# Total tokens today (output + input + cache) across claude + codex, from raw
+# logs — the same basis OpenUsage uses. Heavy, so call via cached_total().
+total_today() {
+  local today_utc today_local ct cx
+  today_utc="$(date -u +%Y-%m-%d)"; today_local="$(date +%Y/%m/%d)"
+  ct="$(find "$HOME/.claude/projects" -name '*.jsonl' -mtime -1 2>/dev/null | while read -r f; do
+    jq -r --arg d "$today_utc" 'select((.timestamp//"")|startswith($d)) | .message.usage // empty
+      | ((.input_tokens//0)+(.output_tokens//0)+(.cache_creation_input_tokens//0)+(.cache_read_input_tokens//0))' "$f" 2>/dev/null
+  done | awk '{s+=$1} END{print s+0}')"
+  cx="$(find "$HOME/.codex/sessions/$today_local" -name 'rollout-*.jsonl' 2>/dev/null | while read -r f; do
+    grep -o '"total_tokens":[0-9]*' "$f" 2>/dev/null | grep -o '[0-9]*' | sort -n | tail -1
+  done | awk '{s+=$1} END{print s+0}')"
+  echo $(( ${ct:-0} + ${cx:-0} ))
+}
+# Cached wrapper: recompute at most once per TOTAL_TTL seconds.
+cached_total() {
+  local now age
+  now="$(date +%s)"
+  if [ -f "$TOTAL_CACHE" ]; then
+    age=$(( now - $(stat -f %m "$TOTAL_CACHE" 2>/dev/null || echo 0) ))
+    if [ "$age" -lt "$TOTAL_TTL" ]; then cat "$TOTAL_CACHE"; return; fi
+  fi
+  total_today | tee "$TOTAL_CACHE"
+}
+
+# --- Week (Mon–Sun) view, pushed on request ---
+# This week's output tokens to-date; optional $1 = agent (else all agents).
+week_tokens() {
+  agentsview activity report --preset week ${1:+--agent "$1"} --no-sync --json 2>/dev/null \
+    | jq -r '[.buckets[].output_tokens] | add // 0'
+}
+# Previous Mon–Sun week total.
+prevweek_tokens() {
+  agentsview activity report --preset week --date "$(date -v-7d +%Y-%m-%d)" --no-sync --json 2>/dev/null \
+    | jq -r '[.buckets[].output_tokens] | add // 0'
+}
+# Publish the week view once (label WEEK) and hold it on screen: the DAY loop
+# skips publishing while HOLD_FILE's timestamp is in the future.
+# Humanize a token count: 5613320 -> "5.6M", 269880 -> "270k".
+humanize() {
+  local n="${1:-0}"
+  if [ "${n:-0}" -ge 1000000 ] 2>/dev/null; then
+    awk -v n="$n" 'BEGIN{printf "%.1fM", n/1000000}'
+  else
+    echo "$(( (n + 500) / 1000 ))k"
+  fi
+}
+
+publish_week() {
+  agentsview activity report --preset week --json >/dev/null 2>&1   # warm/sync once
+  local used cl cx prev sub payload
+  used="$(week_tokens)"; cl="$(week_tokens claude)"; cx="$(week_tokens codex)"; prev="$(prevweek_tokens)"
+  : "${used:=0}"; : "${cl:=0}"; : "${cx:=0}"; : "${prev:=0}"
+  sub="last wk $(humanize "$prev")"      # bottom line: previous week for comparison
+  payload="$(jq -cn --argjson u "$used" --argjson l "$WEEK_LIMIT" --arg lab "WEEK" \
+    --argjson p "$prev" --arg pl "wk" --argjson cl "$cl" --argjson cx "$cx" --arg sub "$sub" \
+    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx,sub:$sub}}')"
+  mosquitto_pub "${pub_args[@]}" -m "$payload"
+  echo "$(( $(date +%s) + WEEK_HOLD ))" > "$HOLD_FILE"
+  echo "$(date +%T) → WEEK $payload  (hold ${WEEK_HOLD}s)"
+}
+
 # Previous active day is stable within a run — compute it once (day metric only).
 PREV_TOK=0; PREV_LAB=""
 if [ "$METRIC" != "peak" ]; then
@@ -106,7 +180,7 @@ if [ "$METRIC" != "peak" ]; then
 fi
 
 publish_once() {
-  local used tag payload cl=0 cx=0
+  local used tag payload cl=0 cx=0 tot=0
   if [ "$METRIC" = "peak" ]; then
     local sid; sid="$(current_session)"
     [ -z "$sid" ] && { echo "$(date +%T) no session found" >&2; return 1; }
@@ -114,16 +188,24 @@ publish_once() {
   else
     used="$(today_output_tokens)"          # warms the DB (no --no-sync)
     cl="$(model_today claude)"; cx="$(model_today codex)"
-    tag="today CL$cl CX$cx (prev ${PREV_LAB:-?} ${PREV_TOK})"
+    [ "$SHOW_TOTAL" = "1" ] && tot="$(cached_total)"
+    tag="today out=$used tot=$tot"
   fi
   { [ -z "$used" ] || [ "$used" = "null" ]; } && used=0
+  : "${tot:=0}"
   payload="$(jq -cn --argjson u "$used" --argjson l "$METER_LIMIT" --arg lab "$METER_LABEL" \
     --argjson p "${PREV_TOK:-0}" --arg pl "${PREV_LAB:-}" \
-    --argjson cl "${cl:-0}" --argjson cx "${cx:-0}" \
-    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx}}')"
+    --argjson cl "${cl:-0}" --argjson cx "${cx:-0}" --argjson tot "${tot:-0}" \
+    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx,tot:$tot}}')"
   mosquitto_pub "${pub_args[@]}" -m "$payload" \
     && echo "$(date +%T) → $payload  ($tag)"
 }
+
+# One-shot week view (Mon–Sun) on request, e.g. `tabbie-tokenmeter.sh week`.
+if [ "${1:-}" = "week" ]; then
+  publish_week
+  exit $?
+fi
 
 if [ "${ONCE:-0}" = "1" ]; then
   publish_once
@@ -132,6 +214,13 @@ fi
 
 echo "tabbie-tokenmeter: every ${INTERVAL}s → ${HOST}:${PORT} ${TOPIC} (limit ${METER_LIMIT})"
 while true; do
+  # Respect a week-view hold: leave the WEEK snapshot on screen, don't overwrite.
+  if [ -f "$HOLD_FILE" ]; then
+    if [ "$(date +%s)" -lt "$(cat "$HOLD_FILE" 2>/dev/null || echo 0)" ]; then
+      sleep "$INTERVAL"; continue
+    fi
+    rm -f "$HOLD_FILE"
+  fi
   publish_once
   sleep "$INTERVAL"
 done
