@@ -138,7 +138,9 @@ long loadUsed = 0, loadLimit = 0; // level for the bottom load-bar overlay
 bool loadBarActive = false;       // draw the load bar over the current face
 String loadFace = "";             // mood face currently driven by load
 unsigned long statsUntil = 0;     // while now < this, show numeric stats instead of the face
+int meterRate = 0;                // burn-rate position 0..100 (50 = sustainable pace)
 void drawLoadBarOverlay();
+void drawRateBar();
 unsigned long animationStartTime = 0;
 unsigned long startupTime = 0;
 bool hasCompletedStartup = false;
@@ -1202,6 +1204,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       meterCx = m["cx"] | 0L;
       meterSub = (const char*)(m["sub"] | "");
       meterTot = m["tot"] | 0L;
+      meterRate = m["rate"] | 0L;
       String face = (const char*)(m["face"] | "");
 
 #ifdef TABBIE_CALENDAR
@@ -2086,9 +2089,13 @@ void drawMeterScreen() {
       snprintf(t, sizeof(t), "of %ldk total", (meterTot + 500) / 1000);
     display.drawStr(0, 63, t);
   } else if (meterCx > 0) {
-    char s[28];
-    snprintf(s, sizeof(s), "CL %ldk  CX %ldk",
-             (meterCl + 500) / 1000, (meterCx + 500) / 1000);
+    long tot = meterCl + meterCx;
+    int clp = tot > 0 ? (int)((meterCl * 100) / tot) : 0;
+    int cxp = tot > 0 ? (int)((meterCx * 100) / tot) : 0;
+    char s[40];
+    snprintf(s, sizeof(s), "CL %ldk %d%%  CX %ldk %d%%",
+             (meterCl + 500) / 1000, clp, (meterCx + 500) / 1000, cxp);
+    display.setFont(u8g2_font_5x7_tf);   // smaller so tokens + % both fit
     display.drawStr(0, 63, s);
   } else if (meterPrev > 0) {
     char prevStr[24];
@@ -2147,7 +2154,14 @@ void drawBmoFace(const String& mood) {
   int look = 0;
   if (!panic && (now % 5000) < 700) look = ((now / 5000) % 2) ? 3 : -3;
 
-  int shake = panic ? (((now / 70) % 2) ? 3 : -3) : 0;   // panic shake
+  // Tremble is driven ONLY by burn rate, never by the cumulative mood: calm up
+  // to 3/4 of the gauge (rate<=75), shaking harder the further past it you go.
+  // So a high-total day sits still if you've slowed down — tremble = "too fast".
+  int shake = 0;
+  if (meterRate > 75) {
+    int amp = 1 + (meterRate - 75) / 12; if (amp > 3) amp = 3;
+    shake = (((now / 55) % 2) ? amp : -amp);
+  }
   int lx = 44 + look + shake, rx = 84 + look + shake, ey = 24 + bob;
   int mcx = 64 + shake, mcy = 42 + bob;
 
@@ -2168,7 +2182,7 @@ void drawBmoFace(const String& mood) {
   }
 
   // --- mouth (breathing wobble; nervous in panic) ---
-  int wob = panic ? (((now / 90) % 2) ? 2 : -2) : breath;
+  int wob = breath;   // mouth just breathes; agitation comes from rate tremble
   if      (mood == "bmo_bliss")   bmoMouth(mcx, mcy, 26,  12 + wob);
   else if (mood == "bmo_happy")   bmoMouth(mcx, mcy, 22,   6 + wob);
   else if (mood == "bmo_neutral") bmoMouth(mcx, mcy, 18,   0 + wob);
@@ -2290,18 +2304,44 @@ String clipForDisplay(const String& value, int maxLen) {
 void drawLoadBarOverlay() {
   if (!loadBarActive || loadLimit <= 0) return;
   const int y = 63;                    // bottom row baseline
-  int fillW = (int)(((long)128 * loadUsed) / loadLimit);
-  if (fillW > 128) fillW = 128;
-  if (fillW < 0) fillW = 0;
   display.setDrawColor(0);
-  display.drawBox(0, y - 2, 128, 3);   // small clear strip so it reads over the face
+  display.drawBox(0, y - 6, 128, 7);   // clear strip so it reads over the face
   display.setDrawColor(1);
-  if (fillW > 0) display.drawHLine(0, y, fillW);   // the fill: a thin baseline
-  for (int i = 1; i < 5; i++) {        // 1/5..4/5 zone notches, sticking up 3px
+  display.drawHLine(0, y, 128);        // thin full-width track
+  for (int i = 1; i < 5; i++) {        // 1/5..4/5 zone notches
     int tx = (int)(((long)128 * i) / 5);
     if (tx > 127) tx = 127;
     display.drawVLine(tx, y - 2, 3);
   }
+  int px = (int)(((long)127 * loadUsed) / loadLimit);   // ▲ pointer at the fill position
+  if (px < 3) px = 3; if (px > 124) px = 124;
+  display.drawTriangle(px, y - 2, px - 3, y - 6, px + 3, y - 6);
+
+  // Daily load % in the top-right corner (same value as the bottom gauge).
+  int pct = (int)((loadUsed * 100) / loadLimit);
+  char ps[8]; snprintf(ps, sizeof(ps), "%d%%", pct);
+  display.setFont(u8g2_font_6x10_tf);
+  display.drawStr(128 - display.getStrWidth(ps), 9, ps);
+}
+
+// Left-edge vertical burn-rate gauge: a full-height track with a midpoint mark
+// (the sustainable pace) and a left-pointing arrow that jumps to the current
+// rate — high = burning too fast, low = resting.
+void drawRateBar() {
+  if (!loadBarActive) return;
+  const int tx = 2, ty0 = 3, ty1 = 60, inner = ty1 - ty0;
+  display.drawVLine(tx, ty0, inner + 1);        // thin vertical track (like the bottom line)
+  for (int i = 0; i < 3; i++) {                 // 1/4, 1/2, 3/4 ticks — stay between 1/4 and 3/4
+    int pos = 25 + i * 25;
+    int my = ty1 - inner * pos / 100;
+    display.drawHLine(tx - 1, my, 3);
+  }
+  int pos = meterRate; if (pos < 0) pos = 0; if (pos > 100) pos = 100;
+  int ay = ty1 - inner * pos / 100;             // arrow y (top = fast)
+  if (ay < ty0 + 3) ay = ty0 + 3;
+  if (ay > ty1 - 3) ay = ty1 - 3;
+  display.setDrawColor(0); display.drawBox(tx + 1, ay - 3, 8, 7); display.setDrawColor(1);
+  display.drawTriangle(tx + 2, ay, tx + 8, ay - 3, tx + 8, ay + 3);   // ◄ tip at the track
 }
 
 void flushDisplay(bool showOverlay) {
@@ -2309,6 +2349,7 @@ void flushDisplay(bool showOverlay) {
     drawStatusOverlay();
   }
   drawLoadBarOverlay();
+  drawRateBar();
   display.sendBuffer();
 }
 

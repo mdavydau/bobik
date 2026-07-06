@@ -33,6 +33,9 @@ METRIC="${METRIC:-day}"                  # "day" = today's output tokens (grows 
                                         # day); "peak" = current session context peak
 MOOD_FACE="${MOOD_FACE:-1}"             # 1 = drive a mood face (relax→panic) by load
                                         # with a bottom bar; 0 = numeric meter only
+RATE_WINDOW_MIN="${RATE_WINDOW_MIN:-30}" # burn rate measured over the last N minutes
+RATE_MID="${RATE_MID:-2500}"            # output tok/min that sits at the gauge midpoint
+                                        # (a sustainable *instantaneous* pace); top = 2x this
 METER_LIMIT="${METER_LIMIT:-200000}"    # the "too much" red line for the metric
 METER_LABEL="${METER_LABEL:-DAY}"
 AGENT="${AGENT:-claude}"
@@ -181,6 +184,25 @@ if [ "$METRIC" != "peak" ]; then
   [ -z "$PREV_TOK" ] && PREV_TOK=0
 fi
 
+# Burn-rate position 0..100 (50 = sustainable pace = limit / workday minutes),
+# from output tokens in the last RATE_WINDOW_MIN (5-min activity buckets).
+rate_pos() {
+  local n sum rpm pace pos
+  n=$(( RATE_WINDOW_MIN / 5 )); [ "$n" -lt 1 ] && n=1
+  sum="$(agentsview activity report --preset day --no-sync --json 2>/dev/null \
+    | jq -r --argjson n "$n" '
+        (.elapsed_bucket_count // (.buckets|length)) as $e
+        | (.buckets[:$e]) as $b | ($b|length) as $L
+        | [ $b[ (if $L > $n then $L - $n else 0 end) : ][].output_tokens ] | add // 0')"
+  [ -z "$sum" ] && sum=0
+  rpm=$(( sum / RATE_WINDOW_MIN ))
+  pace="${RATE_MID:-2500}"; [ "$pace" -lt 1 ] && pace=1   # midpoint = sustainable tok/min
+  pos=$(( rpm * 50 / pace ))
+  [ "$pos" -gt 100 ] && pos=100
+  [ "$pos" -lt 0 ] && pos=0
+  echo "$pos"
+}
+
 # Map a load level to a mood face across 5 zones: relax → panic.
 zoneface() {  # $1=used $2=limit
   local p=0
@@ -193,7 +215,7 @@ zoneface() {  # $1=used $2=limit
 }
 
 publish_once() {
-  local used tag payload cl=0 cx=0 tot=0 face=""
+  local used tag payload cl=0 cx=0 tot=0 face="" rate=0
   if [ "$METRIC" = "peak" ]; then
     local sid; sid="$(current_session)"
     [ -z "$sid" ] && { echo "$(date +%T) no session found" >&2; return 1; }
@@ -203,14 +225,16 @@ publish_once() {
     cl="$(model_today claude)"; cx="$(model_today codex)"
     [ "$SHOW_TOTAL" = "1" ] && tot="$(cached_total)"
     [ "$MOOD_FACE" = "1" ] && face="$(zoneface "$used" "$METER_LIMIT")"
-    tag="today out=$used face=${face:-none}"
+    rate="$(rate_pos)"
+    tag="today out=$used face=${face:-none} rate=$rate"
   fi
   { [ -z "$used" ] || [ "$used" = "null" ]; } && used=0
-  : "${tot:=0}"
+  : "${tot:=0}"; : "${rate:=0}"
   payload="$(jq -cn --argjson u "$used" --argjson l "$METER_LIMIT" --arg lab "$METER_LABEL" \
     --argjson p "${PREV_TOK:-0}" --arg pl "${PREV_LAB:-}" \
-    --argjson cl "${cl:-0}" --argjson cx "${cx:-0}" --argjson tot "${tot:-0}" --arg face "$face" \
-    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx,tot:$tot,face:$face}}')"
+    --argjson cl "${cl:-0}" --argjson cx "${cx:-0}" --argjson tot "${tot:-0}" \
+    --arg face "$face" --argjson rate "${rate:-0}" \
+    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx,tot:$tot,face:$face,rate:$rate}}')"
   mosquitto_pub "${pub_args[@]}" -m "$payload" \
     && echo "$(date +%T) → $payload  ($tag)"
 }
