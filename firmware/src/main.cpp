@@ -131,6 +131,14 @@ long meterCl = 0;        // per-model split: claude tokens (0 = single-model day
 long meterCx = 0;        // per-model split: codex tokens
 String meterSub = "";    // explicit bottom-line text; overrides the auto split/prev
 long meterTot = 0;       // total tokens incl. cache (0 = limit mode; >0 = output/total mode)
+
+// Load-driven mood face: the token level picks a face (relax→panic) and a thin
+// bar is overlaid at the bottom showing how full the day is (with 1/5 ticks).
+long loadUsed = 0, loadLimit = 0; // level for the bottom load-bar overlay
+bool loadBarActive = false;       // draw the load bar over the current face
+String loadFace = "";             // mood face currently driven by load
+unsigned long statsUntil = 0;     // while now < this, show numeric stats instead of the face
+void drawLoadBarOverlay();
 unsigned long animationStartTime = 0;
 unsigned long startupTime = 0;
 bool hasCompletedStartup = false;
@@ -693,6 +701,14 @@ void loop() {
   checkCalendarSchedule();
 #endif
   checkScheduledFaces();
+  // Load-face: after the 10s stats window on a zone change, return to the face.
+  if (statsUntil != 0 && millis() >= statsUntil) {
+    statsUntil = 0;
+    if (loadFace.length()) {
+      loadBarActive = true;
+      applyAnimation(loadFace, meterLabel, 0);
+    }
+  }
   logDevSnapshot();
 
   // Update display animation (always runs, never blocked!)
@@ -1185,8 +1201,37 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       meterCx = m["cx"] | 0L;
       meterSub = (const char*)(m["sub"] | "");
       meterTot = m["tot"] | 0L;
-      applyAnimation("meter", meterLabel, 0);
-      Serial.printf("📊 MQTT meter: %ld / %ld (%s)\n", meterUsed, meterLimit, meterLabel.c_str());
+      String face = (const char*)(m["face"] | "");
+
+#ifdef TABBIE_CALENDAR
+      // Calendar events win: while one owns the face, keep it — just update numbers.
+      if (calendarOverrideActive) {
+        Serial.println("📊 meter: calendar owns the face, numbers updated only");
+        return;
+      }
+#endif
+
+      if (face.length()) {
+        // Face+bar mode: the level picks a mood face; a bar is overlaid below it.
+        loadUsed = meterUsed; loadLimit = meterLimit;
+        if (face != loadFace) {
+          // Zone changed → show numeric stats for 10s, then the new face.
+          loadFace = face;
+          statsUntil = millis() + 10000;
+          loadBarActive = false;
+          applyAnimation("meter", meterLabel, 0);
+        } else if (statsUntil == 0) {
+          // Same zone: keep the face animating smoothly (don't re-trigger every push).
+          loadBarActive = true;
+          if (currentAnimation != loadFace) applyAnimation(loadFace, meterLabel, 0);
+        }
+        // else: within the 10s stats window — leave the numeric screen up.
+      } else {
+        // Numeric-only meter (no face field).
+        loadBarActive = false; statsUntil = 0; loadFace = "";
+        applyAnimation("meter", meterLabel, 0);
+      }
+      Serial.printf("📊 MQTT meter: %ld / %ld face=%s\n", meterUsed, meterLimit, face.c_str());
       return;
     }
 
@@ -2159,10 +2204,30 @@ String clipForDisplay(const String& value, int maxLen) {
   return value.substring(0, maxLen - 3) + "...";
 }
 
+// Thin load bar along the very bottom, overlaid on the current mood face, with
+// 1/5..4/5 ticks marking the 5 zones — shows how full the day is under the face.
+void drawLoadBarOverlay() {
+  if (!loadBarActive || loadLimit <= 0) return;
+  const int y = 63;                    // bottom row baseline
+  int fillW = (int)(((long)128 * loadUsed) / loadLimit);
+  if (fillW > 128) fillW = 128;
+  if (fillW < 0) fillW = 0;
+  display.setDrawColor(0);
+  display.drawBox(0, y - 2, 128, 3);   // small clear strip so it reads over the face
+  display.setDrawColor(1);
+  if (fillW > 0) display.drawHLine(0, y, fillW);   // the fill: a thin baseline
+  for (int i = 1; i < 5; i++) {        // 1/5..4/5 zone notches, sticking up 3px
+    int tx = (int)(((long)128 * i) / 5);
+    if (tx > 127) tx = 127;
+    display.drawVLine(tx, y - 2, 3);
+  }
+}
+
 void flushDisplay(bool showOverlay) {
   if (showOverlay) {
     drawStatusOverlay();
   }
+  drawLoadBarOverlay();
   display.sendBuffer();
 }
 

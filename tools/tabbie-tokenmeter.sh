@@ -31,6 +31,8 @@ CONFIG="${TOKENMETER_ENV:-$SCRIPT_DIR/tokenmeter.env}"
 INTERVAL="${INTERVAL:-5}"
 METRIC="${METRIC:-day}"                  # "day" = today's output tokens (grows all
                                         # day); "peak" = current session context peak
+MOOD_FACE="${MOOD_FACE:-1}"             # 1 = drive a mood face (relax→panic) by load
+                                        # with a bottom bar; 0 = numeric meter only
 METER_LIMIT="${METER_LIMIT:-200000}"    # the "too much" red line for the metric
 METER_LABEL="${METER_LABEL:-DAY}"
 AGENT="${AGENT:-claude}"
@@ -179,8 +181,19 @@ if [ "$METRIC" != "peak" ]; then
   [ -z "$PREV_TOK" ] && PREV_TOK=0
 fi
 
+# Map a load level to a mood face across 5 zones: relax → panic.
+zoneface() {  # $1=used $2=limit
+  local p=0
+  [ "${2:-0}" -gt 0 ] 2>/dev/null && p=$(( $1 * 100 / $2 ))
+  if   [ "$p" -lt 20 ]; then echo break         # relax (calm)
+  elif [ "$p" -lt 40 ]; then echo mochi_happy    # productive
+  elif [ "$p" -lt 60 ]; then echo focus          # in the zone
+  elif [ "$p" -lt 80 ]; then echo sweat          # heating up
+  else                       echo paused; fi     # panic (angry, shaking)
+}
+
 publish_once() {
-  local used tag payload cl=0 cx=0 tot=0
+  local used tag payload cl=0 cx=0 tot=0 face=""
   if [ "$METRIC" = "peak" ]; then
     local sid; sid="$(current_session)"
     [ -z "$sid" ] && { echo "$(date +%T) no session found" >&2; return 1; }
@@ -189,14 +202,15 @@ publish_once() {
     used="$(today_output_tokens)"          # warms the DB (no --no-sync)
     cl="$(model_today claude)"; cx="$(model_today codex)"
     [ "$SHOW_TOTAL" = "1" ] && tot="$(cached_total)"
-    tag="today out=$used tot=$tot"
+    [ "$MOOD_FACE" = "1" ] && face="$(zoneface "$used" "$METER_LIMIT")"
+    tag="today out=$used face=${face:-none}"
   fi
   { [ -z "$used" ] || [ "$used" = "null" ]; } && used=0
   : "${tot:=0}"
   payload="$(jq -cn --argjson u "$used" --argjson l "$METER_LIMIT" --arg lab "$METER_LABEL" \
     --argjson p "${PREV_TOK:-0}" --arg pl "${PREV_LAB:-}" \
-    --argjson cl "${cl:-0}" --argjson cx "${cx:-0}" --argjson tot "${tot:-0}" \
-    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx,tot:$tot}}')"
+    --argjson cl "${cl:-0}" --argjson cx "${cx:-0}" --argjson tot "${tot:-0}" --arg face "$face" \
+    '{meter:{used:$u,limit:$l,label:$lab,prev:$p,prevlab:$pl,cl:$cl,cx:$cx,tot:$tot,face:$face}}')"
   mosquitto_pub "${pub_args[@]}" -m "$payload" \
     && echo "$(date +%T) → $payload  ($tag)"
 }
