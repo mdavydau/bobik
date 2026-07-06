@@ -119,6 +119,16 @@ Preferences preferences;
 // Current state
 String currentAnimation = "startup";
 String currentTask = "";
+
+// Token-meter: latest values pushed from the Mac via MQTT {"meter":{...}}.
+// Shown by the "meter" display mode (a full-screen gauge that replaces the face).
+long meterUsed = 0;      // e.g. peak context tokens of the current session
+long meterLimit = 0;     // the "too much" red line (e.g. a past bloated session)
+String meterLabel = "";  // short caption, e.g. "CTX"
+long meterPrev = 0;      // previous active day's total, for comparison (0 = hide)
+String meterPrevLabel = ""; // short tag for that day, e.g. "Fri"
+long meterCl = 0;        // per-model split: claude tokens (0 = single-model day)
+long meterCx = 0;        // per-model split: codex tokens
 unsigned long animationStartTime = 0;
 unsigned long startupTime = 0;
 bool hasCompletedStartup = false;
@@ -272,6 +282,7 @@ void drawMochi_angryAnimation();
 void drawMochi_loveAnimation();
 void drawUpiir_big_smileAnimation();
 void drawStatus_alertAnimation();
+void drawMeterScreen();
 void drawDebugInfo();
 void drawDevInfo();
 String clipForDisplay(const String& value, int maxLen);
@@ -1159,6 +1170,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
 #endif
 
+    // {"meter":{"used":157727,"limit":85000,"label":"CTX"}}
+    // Token-meter push from the Mac: show a full-screen gauge instead of a face.
+    if (doc["meter"].is<JsonObject>()) {
+      JsonObject m = doc["meter"];
+      meterUsed  = m["used"]  | 0L;
+      meterLimit = m["limit"] | 0L;
+      meterLabel = (const char*)(m["label"] | "CTX");
+      meterPrev  = m["prev"]  | 0L;
+      meterPrevLabel = (const char*)(m["prevlab"] | "");
+      meterCl = m["cl"] | 0L;
+      meterCx = m["cx"] | 0L;
+      applyAnimation("meter", meterLabel, 0);
+      Serial.printf("📊 MQTT meter: %ld / %ld (%s)\n", meterUsed, meterLimit, meterLabel.c_str());
+      return;
+    }
+
     String anim = doc["animation"] | "";
     String task = doc["task"] | "";
     unsigned long dur = doc["duration"] | 0UL;
@@ -1929,6 +1956,75 @@ void drawStatus_alertAnimation() {
   if (frame >= 24) frame = 0;
 }
 
+// Full-screen token gauge (replaces the face). Shows the value in thousands as
+// a big number, the % of the "too much" limit, and a progress bar. Driven by
+// the meterUsed/meterLimit/meterLabel globals set from MQTT {"meter":{...}}.
+void drawMeterScreen() {
+  long used = meterUsed;
+  long limit = meterLimit;
+  int pct = (limit > 0) ? (int)((used * 100) / limit) : 0;
+
+  display.clearBuffer();
+
+  // Top-left caption (e.g. "DAY"), top-right percentage.
+  display.setFont(u8g2_font_6x10_tf);
+  display.drawStr(0, 8, meterLabel.length() ? meterLabel.c_str() : "CTX");
+  char pctStr[8];
+  snprintf(pctStr, sizeof(pctStr), "%d%%", pct);
+  display.drawStr(128 - display.getStrWidth(pctStr), 8, pctStr);
+
+  // Big number = value in thousands, centered, with a small "k".
+  long kVal = (used + 500) / 1000;   // round to nearest thousand
+  char big[8];
+  snprintf(big, sizeof(big), "%ld", kVal);
+  display.setFont(u8g2_font_logisoso28_tn);
+  int bigW = display.getStrWidth(big);
+  const int kGap = 3, kW = 9;         // room for the "k" suffix (7x13B ~ 7px)
+  int startX = (128 - (bigW + kGap + kW)) / 2;
+  if (startX < 0) startX = 0;
+  display.drawStr(startX, 38, big);
+  display.setFont(u8g2_font_7x13B_tf);
+  display.drawStr(startX + bigW + kGap, 36, "k");
+
+  // Progress bar; clamp fill, mark overflow with a full+blink.
+  const int bx = 0, by = 42, bw = 128, bh = 8;
+  display.drawFrame(bx, by, bw, bh);
+  int fillW = (limit > 0) ? (int)(((long)(bw - 2) * used) / limit) : 0;
+  if (fillW > bw - 2) fillW = bw - 2;       // clamp at 100%
+  if (fillW < 0) fillW = 0;
+  if (fillW > 0) display.drawBox(bx + 1, by + 1, fillW, bh - 2);
+  // Two models: notch the bar where claude ends and codex begins.
+  if (meterCl > 0 && meterCx > 0 && used > 0) {
+    int notch = (int)(((long)fillW * meterCl) / used);
+    if (notch > 0 && notch < fillW) {
+      display.setDrawColor(0);
+      display.drawVLine(bx + 1 + notch, by + 1, bh - 2);
+      display.setDrawColor(1);
+    }
+  }
+  if (pct > 100 && (millis() / 400) % 2) {  // over the red line: blink full
+    display.drawBox(bx + 1, by + 1, bw - 2, bh - 2);
+  }
+
+  // Bottom line: with two models, show the split; otherwise the previous
+  // active day's total for comparison.
+  display.setFont(u8g2_font_6x10_tf);
+  if (meterCx > 0) {
+    char s[28];
+    snprintf(s, sizeof(s), "CL %ldk  CX %ldk",
+             (meterCl + 500) / 1000, (meterCx + 500) / 1000);
+    display.drawStr(0, 63, s);
+  } else if (meterPrev > 0) {
+    char prevStr[24];
+    snprintf(prevStr, sizeof(prevStr), "%s %ldk",
+             meterPrevLabel.length() ? meterPrevLabel.c_str() : "prev",
+             (meterPrev + 500) / 1000);
+    display.drawStr(0, 63, prevStr);
+  }
+
+  flushDisplay();
+}
+
 void updateDisplay() {
   // Handle startup animation - play once then go to idle
   if (!hasCompletedStartup) {
@@ -1987,6 +2083,8 @@ void updateDisplay() {
     drawUpiir_big_smileAnimation();
   } else if (currentAnimation == "status_alert") {
     drawStatus_alertAnimation();
+  } else if (currentAnimation == "meter") {
+    drawMeterScreen();
   } else if (currentAnimation == "pomodoro") {
     drawPomodoroAnimation();
   } else if (currentAnimation == "complete") {

@@ -28,3 +28,6 @@ mochi-adapted/
 # Google Calendar OAuth client (for minting a calendar-only token)
 .gcal_client_secret.json
 /firmware/.cache
+
+# Token-meter publisher broker credentials (see tokenmeter.env.example)
+tools/tokenmeter.env
