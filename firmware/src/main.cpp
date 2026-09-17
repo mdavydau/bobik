@@ -1395,7 +1395,6 @@ void drawSleepyAnimation() {
 // scheduler). Single source of truth; works whether or not MQTT is compiled in.
 void triggerAnimation(const String& anim, const String& task, unsigned long durSec) {
   if (anim.length() == 0) return;
-  bool faceChanged = (currentAnimation != anim);
   String normalizedTask = task;
   normalizedTask.trim();
   normalizedTask.toLowerCase();
@@ -1422,44 +1421,14 @@ void triggerAnimation(const String& anim, const String& task, unsigned long durS
   if (anim == "paused") {
     lastPausedShakeTime = millis();
   }
-  if (faceChanged) {
-    publishFaceNotification(anim, task);
-  }
 }
 
 void publishFaceNotification(const String& anim, const String& task) {
+  (void)anim;
+  (void)task;
 #ifdef TABBIE_MQTT
-  JsonDocument note;
-  note["event"] = "face-change";
-  note["anim"] = anim;
-  note["animation"] = anim;
-  note["task"] = task;
-  note["uptime"] = millis();
-
-  if (timeSynced) {
-    time_t t = time(nullptr);
-    struct tm lt;
-    localtime_r(&t, &lt);
-    char buf[20];
-    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
-             lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
-             lt.tm_hour, lt.tm_min);
-    note["time"] = buf;
-  }
-
-  String payload;
-  serializeJson(note, payload);
-  if (mqttClient.connected() && mqttClient.publish("tabbie/notify", payload.c_str())) {
-    pendingFaceNotifyDirty = false;
-    pendingFaceNotifyPayload = "";
-    Serial.print("📢 MQTT notify: ");
-    Serial.println(payload);
-  } else {
-    pendingFaceNotifyPayload = payload;
-    pendingFaceNotifyDirty = true;
-    Serial.print("📬 MQTT notify queued: ");
-    Serial.println(payload);
-  }
+  pendingFaceNotifyDirty = false;
+  pendingFaceNotifyPayload = "";
 #endif
 }
 
@@ -1471,13 +1440,6 @@ void clearScheduledFaceOverride() {
 
 #ifdef TABBIE_MQTT
 void flushPendingFaceNotification() {
-  if (!pendingFaceNotifyDirty || !mqttClient.connected()) return;
-  if (mqttClient.publish("tabbie/notify", pendingFaceNotifyPayload.c_str())) {
-    Serial.print("📢 MQTT notify (deferred): ");
-    Serial.println(pendingFaceNotifyPayload);
-    pendingFaceNotifyDirty = false;
-    pendingFaceNotifyPayload = "";
-  }
 }
 #endif
 
